@@ -20,8 +20,10 @@ synthesized_circuit = compile(qft(2**q), max_synthesis_size = q)
 print(synthesized_circuit.gate_counts)
 print(f"Synthesis took {timer() - start}s")
 
+model = MachineModel
 
 task = CompilationTask(synthesized_circuit, [
+    SetModelPass()
     NumericalTReductionPass()
     ])
 
