@@ -10,19 +10,22 @@ from bqskit.ir.opt.cost.generator import CostFunctionGenerator
 from bqskit.ir.opt.instantiater import Instantiater
 from bqskit.ir.opt.minimizer import Minimizer
 from bqskit.ir.opt.minimizers.ceres import CeresMinimizer
-from bqskit.ir.opt.minimizers.bfgs import BFGSMinimizer
+from bqskit.ir.opt.minimizers.lbfgs import LBFGSMinimizer
 from bqskit.qis.state.state import StateVector
 from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
+from bqskit.compiler.basepass import BasePass
 
 
-from clift import *
+from .clift import *
+from .tcount import *
+from .constrained_minimizer import *
 
 
 
 class TwoPassMinimization(Instantiater):
     def __init__(self,
             pass_1_cost_gen: CostFunctionGenerator = HilbertSchmidtResidualsGenerator(),
-            pass_2_cost_gen: CostFunctionGenerator = HilbertSchmidtCostGenerator(),
+            pass_2_cost_gen: CostFunctionGenerator = RelaxedTCountCostGenerator(),
             pass_2_cstr_gen: CostFunctionGenerator = HilbertSchmidtCostGenerator(),
             first_pass: Minimizer | None = None,
             second_pass: Minimizer | None = None,
@@ -32,7 +35,7 @@ class TwoPassMinimization(Instantiater):
         if first_pass is None:
             first_pass = CeresMinimizer()
         if second_pass is None:
-            second_pass = BFGSMinimizer()
+            second_pass = ConstrainedMinimizer(None)
 
 
         self.pass_1_cost_gen = pass_1_cost_gen
@@ -40,11 +43,10 @@ class TwoPassMinimization(Instantiater):
         self.pass_2_cstr_gen = pass_2_cstr_gen
         self.first_pass = first_pass
         self.second_pass = second_pass
-        self.pifrac = 4 # idk how to pass kwargs yet
         self.first_pass_multistarts = 16
         self.first_pass_retries = 2
         self.second_pass_multistarts = 16
-        self.threshold = 1e-8
+        self.threshold = 1e-6
 
     def is_capable(self, circuit):
         for cycle, op in circuit.operations_with_cycles():
@@ -53,6 +55,10 @@ class TwoPassMinimization(Instantiater):
         return True
 
     def get_violation_report(self, circuit):
+        for cycle, op in circuit.operations_with_cycles():
+            if op.gate.qasm_name not in clifford_gates + t_gates + rz_gates:
+                return f"Found gate {op.gate.qasm_name} which is not in {clifford_gates + t_gates + rz_gates}"
+
         raise ValueError("I am not sure what I am supposed to do here so I'll leave this as a TODO for later")
 
     def get_method_name(self):
@@ -61,6 +67,7 @@ class TwoPassMinimization(Instantiater):
 
     def instantiate(self, circuit, target, x0):
         # how to do multistarts?
+        print("INSTANTIATE WAS CALLED")
         return self.multi_start_instantiation(circuit, target)
 
         # multi_start_instantiation(self, circuit, target)
@@ -70,13 +77,17 @@ class TwoPassMinimization(Instantiater):
         return np.mod(result, np.pi * 2)
 
     def multi_start_instantiation(self, circuit, target):
+        print("MULTISTART INSTATIATION WAS CALLED")
 
         # run the first pass
         pass_1_results = []
         pass_1_cost = self.pass_1_cost_gen.gen_cost(circuit, target)
         pass_2_cstr = self.pass_2_cstr_gen.gen_cost(circuit, target)
+        self.second_pass.constraint = pass_2_cstr
+        total_tries = 0
 
-        for _ in range(self.first_pass_retries):
+        while total_tries < self.first_pass_retries:
+            total_tries += self.first_pass_multistarts
             # run a batch of optimizations
             results = [self.first_pass.minimize(pass_1_cost, np.random.rand(circuit.num_params) * np.pi * 2) for _ in range(self.first_pass_multistarts)]
 
@@ -100,7 +111,11 @@ class TwoPassMinimization(Instantiater):
             if len(pass_1_results) >= self.second_pass_multistarts:
                 break
 
+        if len(pass_1_results) < 1:
+            print(f"Failed to find any 1st pass results")
+            return [0 for _ in range(circuit.num_params)]
         # run the second pass
+        print(f"Finished first pass with {len(pass_1_results)} results from {total_tries} attempts")
         pass_2_cost = self.pass_2_cost_gen.gen_cost(circuit, target)
         best_result = None
         best_cost = None
@@ -109,6 +124,7 @@ class TwoPassMinimization(Instantiater):
             result = self.second_pass.minimize(pass_2_cost, x0)
             result_cost = pass_2_cost(result)
             result_cstr = pass_2_cstr(result)
+            print(f"Finished a second pass with cost {result_cost} and cstr {result_cstr}")
             if result_cstr > self.threshold:
                 continue
             if best_result is None:
@@ -127,9 +143,6 @@ class TwoPassMinimization(Instantiater):
 
 
         return best_result
-
-
-
 
 
 

@@ -6,16 +6,18 @@ from bqskit.ir.circuit import Circuit
 from bqskit.ir.gates import *
 from bqskit.runtime import get_runtime
 
-from two_pass_minimization import *
-from clift import *
+from .two_pass_minimization import *
+from .clift import *
 
 # Numerical T Reduction and Optimization
+
+
 
 class NumericalTReductionPass(BasePass):
     def __init__(
             self,
             utry=None,
-            success_threshold: float = 1e-10
+            success_threshold: float = 1e-8
             ) -> None:
         """
         Construct a NumericalTReductionPass
@@ -64,12 +66,50 @@ class NumericalTReductionPass(BasePass):
 
         # run 1st pass minimization
         #circuit.instantiate(target=utry, **self.instantiate_options)
-        result = await get_runtime().submit(
-                Circuit.instantiate,
-                circuit,
-                target=utry,
-                **self.instantiate_options
-        )
+        best_result = circuit
+        for period in [0.5, 0.25]:
+            for _ in range(circuit.num_params+1):
+                self.instantiate_options["method"] = TwoPassMinimization(pass_2_cost_gen = RelaxedTCountCostGenerator(period=period * np.pi))
+                relaxedTCount = RelaxedTCountCostGenerator(period=period).gen_cost(best_result, utry)
+                result = await get_runtime().submit(
+                        Circuit.instantiate,
+                        best_result,
+                        target=utry,
+                        **self.instantiate_options
+                )
+                if result is None:
+                    break
+                print(f"cost array is {relaxedTCount.get_arr(result.params)}")
+                print(f"cost array length is {len(result.params)}")
+                print(f"distance is {result.get_unitary().get_distance_from(utry)}")
+                # verify that the new result passes the threshold
+                if result.get_unitary().get_distance_from(utry) < 1e-2:
+                    best_result = result
+                else:
+                    break
 
+                param_scores = relaxedTCount.get_arr(result.params)
+                minval = np.min(param_scores)
+                did_round = False
+                for cycle, op in best_result.operations_with_cycles():
+                    if len(op.params) != 1:
+                        continue
+                    if relaxedTCount.get_arr(np.array(op.params))[0] == minval:
+                        best_result.replace_gate((cycle, op.location[0]), circuit_for_rounded_val(op.params[0], period), op.location)
+                        print(f"Rounded out {op.params[0]} to {repr(circuit_for_rounded_val(op.params[0], period))}")
+                        did_round = True
+                        break
+                if not did_round:
+                    print(f"Could not find {minval}")
+                    exit(1)
+                best_result.unfold_all()
+                #print(repr(best_result))
+
+
+
+
+
+
+        circuit.become(best_result)
         # bqskit.ir.circuit helper functions to convert between parameter index and gate index
         return
