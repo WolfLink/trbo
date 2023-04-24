@@ -65,11 +65,14 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
 # example: qft circuit
-start = timer()
 q = 3
-synthesized_circuit = compile(qft(2**q), max_synthesis_size = q)
+U = qft(2**q)
+U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
+#U = np.kron(U_S, U_S)
+start = timer()
+synthesized_circuit = compile(U, max_synthesis_size = q)
 print(synthesized_circuit.gate_counts)
-print(synthesized_circuit.get_unitary().get_distance_from(qft(2**q)))
+print(synthesized_circuit.get_unitary().get_distance_from(U))
 print(f"Synthesis took {timer() - start}s")
 
 # run gradient test

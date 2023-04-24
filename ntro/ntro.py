@@ -17,7 +17,7 @@ class NumericalTReductionPass(BasePass):
     def __init__(
             self,
             utry=None,
-            success_threshold: float = 1e-8
+            success_threshold: float = 1e-6
             ) -> None:
         """
         Construct a NumericalTReductionPass
@@ -62,6 +62,7 @@ class NumericalTReductionPass(BasePass):
                 print(f"Unable to convert {op.gate.qasm_name} to Clifford+Rz.  This warning may be replaced by an error or by a synthesis pass in the future.")
 
         best_circuit.unfold_all()
+        print(f"Initial circuit: {best_circuit}")
 
 
         # run 1st pass minimization
@@ -69,8 +70,8 @@ class NumericalTReductionPass(BasePass):
         best_result = circuit
         for period in [0.5, 0.25]:
             for _ in range(circuit.num_params+1):
-                self.instantiate_options["method"] = TwoPassMinimization(pass_2_cost_gen = RelaxedTCountCostGenerator(period=period * np.pi))
-                relaxedTCount = RelaxedTCountCostGenerator(period=period).gen_cost(best_result, utry)
+                self.instantiate_options["method"] = TwoPassMinimization(pass_2_cost_gen = RelaxedTCountCostGenerator(period=period * np.pi), ftol=self.success_threshold, gtol=self.success_threshold*1e-2)
+                relaxedTCount = RelaxedTCountCostGenerator(period=period * np.pi).gen_cost(best_result, utry)
                 result = await get_runtime().submit(
                         Circuit.instantiate,
                         best_result,

@@ -33,7 +33,7 @@ class TwoPassMinimization(Instantiater):
             ) -> None:
 
         if first_pass is None:
-            first_pass = CeresMinimizer()
+            first_pass = CeresMinimizer(**kwargs)
         if second_pass is None:
             second_pass = ConstrainedMinimizer(None)
 
@@ -95,6 +95,7 @@ class TwoPassMinimization(Instantiater):
             for result in results:
                 # filter out failures to meet the threshold
                 if pass_2_cstr(result) > self.threshold:
+                    print(f"Rejected a result with value {pass_2_cstr(result)}")
                     continue
                 # normalize the parameters to make comparison simpler
                 normalized_result = self.normalize(result)
