@@ -33,12 +33,7 @@ class TwoPassMinimization(Instantiater):
             ) -> None:
 
         if first_pass is None:
-            if "success_threshold" in kwargs:
-                ftol = kwargs["success_threshold"] * 0.1 # make the optimizer tolerance slightly tighter than what we really want because it sometimes doesn't quite make it
-            else:
-                ftol = 1e-7
-            first_pass = CeresMinimizer(ftol=ftol, gtol=1e-16) # I find that gtol=1e-14 makes things a lot more reliable
-            print(f"sent Ceres this kwargs: ftol={ftol}, gtol=1e-16")
+            first_pass = CeresMinimizer()
 
         if "success_threshold" in kwargs:
             self.threshold = kwargs["success_threshold"]
@@ -54,8 +49,8 @@ class TwoPassMinimization(Instantiater):
         self.second_pass = second_pass
         # while I am doing everything single-threaded, it makes more sense to do things one at a time IMO
         self.first_pass_multistarts = 1
-        self.first_pass_retries = 32
-        self.second_pass_multistarts = 16
+        self.first_pass_retries = 16
+        self.second_pass_multistarts = 8
 
     def is_capable(self, circuit):
         for cycle, op in circuit.operations_with_cycles():
@@ -106,9 +101,12 @@ class TwoPassMinimization(Instantiater):
                 # filter out failures to meet the threshold
                 if pass_2_cstr(result) < best_1st_pass_result:
                     best_1st_pass_result = pass_2_cstr(result)
-                if pass_2_cstr(result) > self.threshold: # TODO figure out how to configure the optimizer so this isn't necessary
-                    #print(f"Rejected a result with value {pass_2_cstr(result)}")
-                    continue
+                if pass_2_cstr(result) > self.threshold:
+                    if pass_2_cstr(result) < 1e-4: # this was a promising result and should undergo higher quality minimization
+                        result = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(pass_1_cost, result)
+                    if pass_2_cstr(result) > self.threshold:
+                        continue # if its still not an acceptable result, reject it
+
                 # normalize the parameters to make comparison simpler
                 normalized_result = self.normalize(result)
                 # filter out duplicates
