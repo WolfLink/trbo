@@ -33,20 +33,29 @@ class TwoPassMinimization(Instantiater):
             ) -> None:
 
         if first_pass is None:
-            first_pass = CeresMinimizer(**kwargs)
-        if second_pass is None:
-            second_pass = ConstrainedMinimizer(None)
+            if "success_threshold" in kwargs:
+                ftol = kwargs["success_threshold"] * 0.1 # make the optimizer tolerance slightly tighter than what we really want because it sometimes doesn't quite make it
+            else:
+                ftol = 1e-7
+            first_pass = CeresMinimizer(ftol=ftol, gtol=1e-16) # I find that gtol=1e-14 makes things a lot more reliable
+            print(f"sent Ceres this kwargs: ftol={ftol}, gtol=1e-16")
 
+        if "success_threshold" in kwargs:
+            self.threshold = kwargs["success_threshold"]
+        else:
+            self.threshold = 1e-6
+        if second_pass is None:
+            second_pass = ConstrainedMinimizer(None, constraint_threshold=self.threshold)
 
         self.pass_1_cost_gen = pass_1_cost_gen
         self.pass_2_cost_gen = pass_2_cost_gen
         self.pass_2_cstr_gen = pass_2_cstr_gen
         self.first_pass = first_pass
         self.second_pass = second_pass
-        self.first_pass_multistarts = 16
-        self.first_pass_retries = 2
+        # while I am doing everything single-threaded, it makes more sense to do things one at a time IMO
+        self.first_pass_multistarts = 1
+        self.first_pass_retries = 32
         self.second_pass_multistarts = 16
-        self.threshold = 1e-6
 
     def is_capable(self, circuit):
         for cycle, op in circuit.operations_with_cycles():
@@ -67,7 +76,7 @@ class TwoPassMinimization(Instantiater):
 
     def instantiate(self, circuit, target, x0):
         # how to do multistarts?
-        print("INSTANTIATE WAS CALLED")
+        #print("INSTANTIATE WAS CALLED")
         return self.multi_start_instantiation(circuit, target)
 
         # multi_start_instantiation(self, circuit, target)
@@ -77,13 +86,14 @@ class TwoPassMinimization(Instantiater):
         return np.mod(result, np.pi * 2)
 
     def multi_start_instantiation(self, circuit, target):
-        print("MULTISTART INSTATIATION WAS CALLED")
+        #print("MULTISTART INSTATIATION WAS CALLED")
 
         # run the first pass
         pass_1_results = []
         pass_1_cost = self.pass_1_cost_gen.gen_cost(circuit, target)
         pass_2_cstr = self.pass_2_cstr_gen.gen_cost(circuit, target)
         self.second_pass.constraint = pass_2_cstr
+        best_1st_pass_result = 1
         total_tries = 0
 
         while total_tries < self.first_pass_retries:
@@ -94,8 +104,10 @@ class TwoPassMinimization(Instantiater):
             # filter the results for failures and duplicates
             for result in results:
                 # filter out failures to meet the threshold
-                if pass_2_cstr(result) > self.threshold:
-                    print(f"Rejected a result with value {pass_2_cstr(result)}")
+                if pass_2_cstr(result) < best_1st_pass_result:
+                    best_1st_pass_result = pass_2_cstr(result)
+                if pass_2_cstr(result) > self.threshold: # TODO figure out how to configure the optimizer so this isn't necessary
+                    #print(f"Rejected a result with value {pass_2_cstr(result)}")
                     continue
                 # normalize the parameters to make comparison simpler
                 normalized_result = self.normalize(result)
@@ -114,6 +126,9 @@ class TwoPassMinimization(Instantiater):
 
         if len(pass_1_results) < 1:
             print(f"Failed to find any 1st pass results")
+            print(f"Best 1st pass result was {best_1st_pass_result}")
+            if best_1st_pass_result < self.threshold * 10:
+                print("THIS ONE WAS AS SUS AS AN AMOGUS")
             return [0 for _ in range(circuit.num_params)]
         # run the second pass
         print(f"Finished first pass with {len(pass_1_results)} results from {total_tries} attempts")
@@ -125,8 +140,9 @@ class TwoPassMinimization(Instantiater):
             result = self.second_pass.minimize(pass_2_cost, x0)
             result_cost = pass_2_cost(result)
             result_cstr = pass_2_cstr(result)
-            print(f"Finished a second pass with cost {result_cost} and cstr {result_cstr}")
+            #print(f"Finished a second pass with cost {result_cost} and cstr {result_cstr}")
             if result_cstr > self.threshold:
+                print(f"Rejected a second pass result because the contraint value was {result_cstr}")
                 continue
             if best_result is None:
                 best_result = result
@@ -142,7 +158,7 @@ class TwoPassMinimization(Instantiater):
                     best_cost = result_cost
                     best_cstr = result_cstr
 
-
+        print(f"chose a result with {pass_2_cost(best_result)} & {pass_2_cstr(best_result)}")
         return best_result
 
 

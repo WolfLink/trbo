@@ -28,16 +28,16 @@ def circuit_for_rounded_val(val, period):
         rounded_val = np.round(val * 4 / np.pi)
         if rounded_val < 4:
             if rounded_val >= 2:
-                circuit.append_gate(SGate())
+                circuit.append_gate(SGate(), 0)
             if rounded_val % 2:
-                circuit.append_gate(TGate())
+                circuit.append_gate(TGate(), 0)
         elif rounded_val > 4:
             if rounded_val <= 6:
-                circuit.append_gate(SdgGate())
+                circuit.append_gate(SdgGate(), 0)
             if rounded_val % 2:
-                circuit.append_gate(TdgGate())
+                circuit.append_gate(TdgGate(), 0)
         elif rounded_val == 4:
-            circuit.append_gate(ZGate())
+            circuit.append_gate(ZGate(), 0)
     return CircuitGate(circuit)
 
 

@@ -5,7 +5,7 @@ from bqskit.ir.opt.minimizer import Minimizer
 from bqskit.ir.opt.cost.differentiable import DifferentiableCostFunction
 
 def f_negate(f, threshold, x):
-    return -f(x)
+    return threshold - f(x)
 
 def grad_negate(f, x):
     return [-y for y in f(x)]
@@ -15,7 +15,7 @@ class ConstrainedMinimizer(Minimizer):
     def __init__(self, constraint, constraint_threshold = 1e-6, tol=1e-10):
         self.tol = tol
         self.constraint = constraint
-        self.constraint_threshold = constraint_threshold
+        self.constraint_threshold = constraint_threshold * 0.5 # make the threshold a little tighter than we really want because the optimizer doesn't totally respect it
 
     def minimize(
             self,

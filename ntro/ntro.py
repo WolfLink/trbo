@@ -62,48 +62,60 @@ class NumericalTReductionPass(BasePass):
                 print(f"Unable to convert {op.gate.qasm_name} to Clifford+Rz.  This warning may be replaced by an error or by a synthesis pass in the future.")
 
         best_circuit.unfold_all()
-        print(f"Initial circuit: {best_circuit}")
 
 
         # run 1st pass minimization
         #circuit.instantiate(target=utry, **self.instantiate_options)
         best_result = circuit
+        trial_circuit = circuit.copy()
         for period in [0.5, 0.25]:
             for _ in range(circuit.num_params+1):
-                self.instantiate_options["method"] = TwoPassMinimization(pass_2_cost_gen = RelaxedTCountCostGenerator(period=period * np.pi), ftol=self.success_threshold, gtol=self.success_threshold*1e-2)
+                # check for constant circuits
+                if trial_circuit.num_params < 1:
+                    if trial_circuit.get_unitary().get_distance_from(utry) < self.success_threshold:
+                        best_result = trial_circuit
+                    else:
+                        trial_circuit = best_result.copy()
+                    break
+                self.instantiate_options["method"] = TwoPassMinimization(pass_2_cost_gen = RelaxedTCountCostGenerator(period=period * np.pi), success_threshold=self.success_threshold)
                 relaxedTCount = RelaxedTCountCostGenerator(period=period * np.pi).gen_cost(best_result, utry)
                 result = await get_runtime().submit(
                         Circuit.instantiate,
-                        best_result,
+                        trial_circuit,
                         target=utry,
                         **self.instantiate_options
                 )
                 if result is None:
                     break
-                print(f"cost array is {relaxedTCount.get_arr(result.params)}")
+                cost_calc = HilbertSchmidtCostGenerator().gen_cost(result, utry)
+                #print(f"cost array is {relaxedTCount.get_arr(result.params)}")
                 print(f"cost array length is {len(result.params)}")
-                print(f"distance is {result.get_unitary().get_distance_from(utry)}")
+                print(f"distance is {cost_calc(result.params)}")
+                #print(f"distance is {result.get_unitary().get_distance_from(utry)}")
                 # verify that the new result passes the threshold
-                if result.get_unitary().get_distance_from(utry) < 1e-2:
+                if cost_calc(result.params) < self.success_threshold:
                     best_result = result
                 else:
+                    trial_circuit = best_result.copy()
                     break
 
-                param_scores = relaxedTCount.get_arr(result.params)
+                trial_circuit = best_result.copy()
+
+                param_scores = relaxedTCount.get_arr(trial_circuit.params)
                 minval = np.min(param_scores)
                 did_round = False
-                for cycle, op in best_result.operations_with_cycles():
+                for cycle, op in trial_circuit.operations_with_cycles():
                     if len(op.params) != 1:
                         continue
                     if relaxedTCount.get_arr(np.array(op.params))[0] == minval:
-                        best_result.replace_gate((cycle, op.location[0]), circuit_for_rounded_val(op.params[0], period), op.location)
+                        trial_circuit.replace_gate((cycle, op.location[0]), circuit_for_rounded_val(op.params[0], period), op.location)
                         print(f"Rounded out {op.params[0]} to {repr(circuit_for_rounded_val(op.params[0], period))}")
                         did_round = True
                         break
                 if not did_round:
                     print(f"Could not find {minval}")
                     exit(1)
-                best_result.unfold_all()
+                trial_circuit.unfold_all()
                 #print(repr(best_result))
 
 

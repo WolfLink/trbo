@@ -65,13 +65,18 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
 # example: qft circuit
-q = 3
+q = 2
 U = qft(2**q)
 U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
 #U = np.kron(U_S, U_S)
+#q = 2
 start = timer()
-synthesized_circuit = compile(U, max_synthesis_size = q)
+#model = MachineModel
+gateset = set([CXG(), SXG(), RZG()])
+synthesized_circuit = compile(U, max_synthesis_size = 3, model=MachineModel(q, gate_set=gateset))
 print(synthesized_circuit.gate_counts)
+print(np.shape(synthesized_circuit.get_unitary()))
+print(np.shape(U))
 print(synthesized_circuit.get_unitary().get_distance_from(U))
 print(f"Synthesis took {timer() - start}s")
 
@@ -79,10 +84,8 @@ print(f"Synthesis took {timer() - start}s")
 #check_constraint_grad(synthesized_circuit, qft(2**q))
 #exit(0)
 
-#model = MachineModel
-gateset = set([CXG(), SXG(), RZG()])
 task = CompilationTask(synthesized_circuit, [
-    SetModelPass(MachineModel(q, gate_set=gateset)),
+    #SetModelPass(MachineModel(q, gate_set=gateset)),
     #QsearchAndBackPass(),
     NumericalTReductionPass()
     ])
@@ -92,5 +95,6 @@ with Compiler() as compiler:
 
 for gate in synthesized_circuit.gate_set:
     print(f"{gate} Count:", synthesized_circuit.count(gate))
+print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U)}")
 
 
