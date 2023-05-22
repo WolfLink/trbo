@@ -65,7 +65,7 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
 # example: qft circuit
-q = 3
+q = 2
 U = qft(2**q)
 U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
 #U = np.kron(U_S, U_S)

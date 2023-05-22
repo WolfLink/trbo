@@ -123,13 +123,13 @@ class TwoPassMinimization(Instantiater):
                 break
 
         if len(pass_1_results) < 1:
-            print(f"Failed to find any 1st pass results")
-            print(f"Best 1st pass result was {best_1st_pass_result}")
+            #print(f"Failed to find any 1st pass results")
+            #print(f"Best 1st pass result was {best_1st_pass_result}")
             if best_1st_pass_result < self.threshold * 10:
                 print("THIS ONE WAS AS SUS AS AN AMOGUS")
             return [0 for _ in range(circuit.num_params)]
         # run the second pass
-        print(f"Finished first pass with {len(pass_1_results)} results from {total_tries} attempts")
+        #print(f"Finished first pass with {len(pass_1_results)} results from {total_tries} attempts")
         pass_2_cost = self.pass_2_cost_gen.gen_cost(circuit, target)
         best_result = None
         best_cost = None
@@ -156,7 +156,7 @@ class TwoPassMinimization(Instantiater):
                     best_cost = result_cost
                     best_cstr = result_cstr
 
-        print(f"chose a result with {pass_2_cost(best_result)} & {pass_2_cstr(best_result)}")
+        #print(f"chose a result with {pass_2_cost(best_result)} & {pass_2_cstr(best_result)}")
         return best_result
 
 

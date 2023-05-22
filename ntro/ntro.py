@@ -89,8 +89,8 @@ class NumericalTReductionPass(BasePass):
                     break
                 cost_calc = HilbertSchmidtCostGenerator().gen_cost(result, utry)
                 #print(f"cost array is {relaxedTCount.get_arr(result.params)}")
-                print(f"cost array length is {len(result.params)}")
-                print(f"distance is {cost_calc(result.params)}")
+                #print(f"cost array length is {len(result.params)}")
+                #print(f"distance is {cost_calc(result.params)}")
                 #print(f"distance is {result.get_unitary().get_distance_from(utry)}")
                 # verify that the new result passes the threshold
                 if cost_calc(result.params) < self.success_threshold:
@@ -109,7 +109,7 @@ class NumericalTReductionPass(BasePass):
                         continue
                     if relaxedTCount.get_arr(np.array(op.params))[0] == minval:
                         trial_circuit.replace_gate((cycle, op.location[0]), circuit_for_rounded_val(op.params[0], period), op.location)
-                        print(f"Rounded out {op.params[0]} to {repr(circuit_for_rounded_val(op.params[0], period))}")
+                        #print(f"Rounded out {op.params[0]} to {repr(circuit_for_rounded_val(op.params[0], period))}")
                         did_round = True
                         break
                 if not did_round:
