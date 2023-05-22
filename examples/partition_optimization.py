@@ -1,0 +1,122 @@
+from bqskit import compile
+from bqskit.compiler import CompilationTask, Compiler
+from bqskit.passes import SetModelPass, PassGroup, IfThenElsePass, NotPredicate, SinglePhysicalPredicate, GroupSingleQuditGatePass, ForEachBlockPass, ZXZXZDecomposition, UnfoldPass, QuickPartitioner
+
+from bqskit.ir.gates.constant.cx import CNOTGate as CXG
+from bqskit.ir.gates.constant.sx import SXGate as SXG
+from bqskit.ir.gates.parameterized.rz import RZGate as RZG
+from bqskit.ir.gate import Gate
+from bqskit.compiler.machine import MachineModel
+
+
+from timeit import default_timer as timer
+from tqdm import tqdm
+import numpy as np
+
+import ntro
+from ntro import *
+from ntro.qsearch_and_back_pass import *
+
+def check_constraint_grad(circuit, target):
+    cstr = HilbertSchmidtCostGenerator().gen_cost(circuit, target)
+    point = np.random.rand(circuit.num_params) * np.pi * 2
+
+    total_report = 0
+    delta = 0.00001
+    grad_num = []
+    for i in range(circuit.num_params):
+        new_point = point + np.array([0] * i + [delta] + [0] * (circuit.num_params - i - 1))
+        grad_num.append((cstr(new_point) - cstr(point)) / delta)
+    
+    grad_an = cstr.get_grad(point)
+    total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
+    print(f"Gradient report returned {total_report} for self-check")
+
+
+    total_report = 0
+    delta = 0.00001
+    threshold = 1e-8
+    grad_num = []
+    for i in range(circuit.num_params):
+        new_point = point + np.array([0] * i + [delta] + [0] * (circuit.num_params - i - 1))
+        grad_num.append((threshold - cstr(new_point) - threshold + cstr(point)) / delta)
+    
+    grad_an = [-y for y in cstr.get_grad(point)]
+    total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
+    print(f"Gradient report returned {total_report} for negate test")
+
+
+    cost = RelaxedTCountCostGenerator().gen_cost(circuit, target)
+    total_report = 0
+    delta = 0.00001
+    threshold = 1e-8
+    grad_num = []
+    for i in range(circuit.num_params):
+        new_point = point + np.array([0] * i + [delta] + [0] * (circuit.num_params - i - 1))
+        grad_num.append((cost(new_point) - cost(point)) / delta)
+    
+    grad_an = cost.get_grad(point)
+    total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
+    print(f"Gradient report returned {total_report} for cost test")
+
+
+def qft(n):
+    # this is the qft unitary generator code from qsearch
+    root = np.e ** (2j * np.pi / n)
+    return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
+
+# example: qft circuit
+q = 2
+U = qft(2**q)
+U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
+#U = np.kron(U_S, U_S)
+#q = 2
+start = timer()
+#model = MachineModel
+gateset = set([CXG(), SXG(), RZG()])
+synthesized_circuit = compile(U, max_synthesis_size = 3, model=MachineModel(q, gate_set=gateset))
+print(synthesized_circuit.gate_counts)
+print(np.shape(synthesized_circuit.get_unitary()))
+print(np.shape(U))
+print(synthesized_circuit.get_unitary().get_distance_from(U))
+print(f"Synthesis took {timer() - start}s")
+
+
+
+# run gradient test
+#check_constraint_grad(synthesized_circuit, qft(2**q))
+#exit(0)
+
+# this formula is copied almost verbatim from _get_single_qudit_gate_rebase_pass in bqskit/bqskit/compiler/compile.py
+rebase_pass = PassGroup([
+    IfThenElsePass(
+        NotPredicate(SinglePhysicalPredicate()),
+        [
+            GroupSingleQuditGatePass(),
+            ForEachBlockPass([
+                IfThenElsePass(
+                    NotPredicate(SinglePhysicalPredicate()),
+                    ZXZXZDecomposition(),
+                ),
+            ]),
+            UnfoldPass(),
+        ],
+    ),
+])
+
+task = CompilationTask(synthesized_circuit, [
+    SetModelPass(MachineModel(synthesized_circuit.num_qudits, gate_set=gateset)), # IMO SetModelPass should perform a rebase operation, or there should be a rebasepass that will do it
+    rebase_pass,
+    QuickPartitioner(),
+    ForEachBlockPass([NumericalTReductionPass()]),
+    UnfoldPass(),
+    ])
+
+with Compiler() as compiler:
+    synthesized_circuit = compiler.compile(task)
+
+for gate in synthesized_circuit.gate_set:
+    print(f"{gate} Count:", synthesized_circuit.count(gate))
+print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U)}")
+
+
