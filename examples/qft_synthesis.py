@@ -14,7 +14,6 @@ import numpy as np
 
 import ntro
 from ntro import *
-from ntro.qsearch_and_back_pass import *
 
 def check_constraint_grad(circuit, target):
     cstr = HilbertSchmidtCostGenerator().gen_cost(circuit, target)
