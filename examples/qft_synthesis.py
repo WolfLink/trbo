@@ -64,7 +64,7 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
 # example: qft circuit
-q = 2
+q = 3
 U = qft(2**q)
 U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
 #U = np.kron(U_S, U_S)
@@ -72,7 +72,7 @@ U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
 start = timer()
 #model = MachineModel
 gateset = set([CXG(), SXG(), RZG()])
-synthesized_circuit = compile(U, max_synthesis_size = 3, model=MachineModel(q, gate_set=gateset))
+synthesized_circuit = compile(U, max_synthesis_size = q, model=MachineModel(q, gate_set=gateset))
 print(synthesized_circuit.gate_counts)
 print(np.shape(synthesized_circuit.get_unitary()))
 print(np.shape(U))
@@ -84,16 +84,26 @@ print(f"Synthesis took {timer() - start}s")
 #exit(0)
 
 task = CompilationTask(synthesized_circuit, [
-    #SetModelPass(MachineModel(q, gate_set=gateset)),
-    #QsearchAndBackPass(),
+    SetModelPass(MachineModel(q, gate_set=gateset)),
     NumericalTReductionPass()
     ])
 
+start = timer()
 with Compiler() as compiler:
     synthesized_circuit = compiler.compile(task)
+print(f"Optimization took {timer() - start}s")
 
+t_count = 0
+rz_count = 0
 for gate in synthesized_circuit.gate_set:
     print(f"{gate} Count:", synthesized_circuit.count(gate))
+    if f"{gate}" in ["TGate","TdgGate"]:
+        t_count += synthesized_circuit.count(gate)
+    elif f"{gate}" in ["RZGate"]:
+        rz_count += synthesized_circuit.count(gate)
+print("")
 print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U)}")
+print(f"T-Count: {t_count}\tRz-Count: {rz_count}")
+
 
 
