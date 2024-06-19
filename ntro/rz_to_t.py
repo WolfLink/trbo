@@ -1,12 +1,12 @@
 """This module implements the NumericalTReductionPass."""
 from __future__ import annotations
 
-from typing import Any
 from typing import Callable
 from typing import Optional
 
 from bqskit import Circuit
 from bqskit.compiler.basepass import BasePass
+from bqskit.compiler.passdata import PassData
 from bqskit.ir.gates import RZGate
 
 import numpy as np
@@ -40,7 +40,8 @@ class RzToTPass(BasePass):
         self.atol = atol
         self.conversion_method = conversion_method
 
-    async def run(self, circuit: Circuit, data: dict[str, Any] = {}) -> None:
+    async def run(self, circuit: Circuit, data: PassData = {}) -> None:
+        # Find RZGates
         points = [
             (cycle, op.location[0])
             for cycle, op in circuit.operations_with_cycles()
@@ -48,6 +49,7 @@ class RzToTPass(BasePass):
         ]
 
         shift = 0
+        # Round angles and optionally replace RZGates
         for point in points:
             point = (point[0] - shift, point[1])
 
