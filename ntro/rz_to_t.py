@@ -1,33 +1,51 @@
 """This module implements the NumericalTReductionPass."""
 from __future__ import annotations
 
+from typing import Any
+from typing import Callable
+from typing import Optional
+
+from bqskit import Circuit
 from bqskit.compiler.basepass import BasePass
-from bqskit.ir.gates import *
+from bqskit.ir.gates import RZGate
 
-from .clift import *
+import numpy as np
 
-# Numerical T Reduction and Optimization
-
+from ntro.clift import circuit_for_rounded_val
 
 
 class RzToTPass(BasePass):
-    def __init__(self,
-            rtol=1e-5,
-            atol=1e-8,
-            conversion_method=None):
-        # rtol and atol are the parameters for a numpy.isclose call
-        # conversion_method should be a function that maps a Rz angle to a circuit.
-        # the value of None does not do any Rz conversion besides rounding sufficiently close Rz gates
+
+    def __init__(
+        self,
+        rtol: float = 1e-5,
+        atol: float = 1e-8,
+        conversion_method: Optional[Callable[[float], Circuit]] = None,
+    ) -> None:
+        """
+        Contructor for the RzToTPass.
+
+        Args:
+            rtol (float): The relative tolerance parameter for angle rounding.
+                (Default: 1e-5)
+
+            atol (float): The absolute tolerance parameter for angle rounding.
+                (Default: 1e-8)
+            
+            conversion_method (Optional[Callable[[float], Circuit]]): A map
+                from Rz angles to circuits. If None, no conversion is done but
+                angles will still be rounded. (Default: None)
+        """
         self.rtol = rtol
         self.atol = atol
         self.conversion_method = conversion_method
 
     async def run(self, circuit: Circuit, data: dict[str, Any] = {}) -> None:
         points = [
-                (cycle, op.location[0])
-                for cycle, op in circuit.operations_with_cycles()
-                if isinstance(op.gate, RZGate)
-                ]
+            (cycle, op.location[0])
+            for cycle, op in circuit.operations_with_cycles()
+            if isinstance(op.gate, RZGate)
+        ]
 
         shift = 0
         for point in points:
@@ -39,8 +57,10 @@ class RzToTPass(BasePass):
             val = op.params[0]
             rounded_val = np.round(val * 4 / np.pi) * np.pi / 4
             if np.isclose(val, rounded_val, self.rtol, self.atol):
-                circuit.replace_gate(point, circuit_for_rounded_val(val % (np.pi * 2), 0.25), op.location)
+                rounded = circuit_for_rounded_val(val % (np.pi * 2), 0.25)
+                circuit.replace_gate(point, rounded, op.location)
             elif self.conversion_method:
-                circuit.replace_gate(point, self.conversion_method(val % (np.pi * 2)), op.location)
+                new_gate = self.conversion_method(val % (np.pi * 2))
+                circuit.replace_gate(point, new_gate, op.location)
 
             shift += og_cycle_count - circuit.num_cycles
