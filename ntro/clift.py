@@ -1,19 +1,53 @@
 import numpy as np
 from bqskit.ir.circuit import Circuit
 from bqskit.ir.gates import CircuitGate
-from bqskit.ir.gates.constant.z import ZGate
-from bqskit.ir.gates.constant.s import SGate
-from bqskit.ir.gates.constant.sdg import SdgGate
-from bqskit.ir.gates.constant.t import TGate
-from bqskit.ir.gates.constant.tdg import TdgGate
+
+from bqskit.ir.gates import CNOTGate
+from bqskit.ir.gates import CZGate
+from bqskit.ir.gates import HGate
+from bqskit.ir.gates import RZGate
+from bqskit.ir.gates import SdgGate
+from bqskit.ir.gates import SGate
+from bqskit.ir.gates import SwapGate
+from bqskit.ir.gates import SqrtXGate
+from bqskit.ir.gates import TdgGate
+from bqskit.ir.gates import TGate
+from bqskit.ir.gates import XGate
+from bqskit.ir.gates import YGate
+from bqskit.ir.gates import ZGate
 
 
-clifford_gates = ["cx", "h", "s", "sdg", "swap", "sx", "x", "y", "z"]
-t_gates = ["t", "tdg"]
-rz_gates = ["rz"]
+clifford_gates = [
+    CNOTGate(),
+    CZGate(),
+    HGate(),
+    SdgGate(),
+    SGate(),
+    SqrtXGate(),
+    SwapGate(),
+    XGate(),
+    YGate(),
+    ZGate(),
+]
+
+t_gates = [TGate(), TdgGate()] 
+
+rz_gates = [RZGate()]
 
 
-def circuit_for_rounded_val(val, period):
+def circuit_for_rounded_val(val: float, period: float) -> CircuitGate:
+    """
+    Returns a CircuitGate with a {Z, S, Sdg, T, Tdg} depending on val.
+    
+    Args:
+        val (float): A parameter value to round.
+
+        period (float): The period of the rounding function.
+    
+    Returns:
+        (CircuitGate): A CircuitGate containing a Z rotation gate depending
+            on val.
+    """
     circuit = Circuit(1)
     if period == 0.5:
         # cliffords
