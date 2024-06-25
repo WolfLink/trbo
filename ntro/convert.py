@@ -9,12 +9,13 @@ from bqskit.passes.control.foreach import ForEachBlockPass
 from bqskit.passes.partitioning import GroupSingleQuditGatePass
 from bqskit.passes.partitioning import QuickPartitioner
 from bqskit.passes.rules import ZXZXZDecomposition
-from bqskit.passes.noop import NoopPass
+from bqskit.passes.noop import NOOPPass
 from bqskit.passes.group import PassGroup
 from bqskit.passes.util.unfold import UnfoldPass
 from bqskit.passes.synthesis import QSearchSynthesisPass
-from bqskit.ir.gate import Gate
-from bqskit.ir.gates import CXGate, SwapGate
+from bqskit.ir.gates import CNOTGate
+from bqskit.ir.gates import SwapGate
+from bqskit.ir.gates import CZGate
 
 
 class CliffordGateSetPredicate(PassPredicate):
@@ -23,7 +24,7 @@ class CliffordGateSetPredicate(PassPredicate):
     def get_truth_value(self, circuit: Circuit, data: PassData) -> bool:
         """Return the truth value, see :class:`PassAlias` for more."""
         return all(
-            g in [CXGate(), SwapGate()]
+            g in [CNOTGate(), SwapGate(), CZGate()]
             for g in circuit.gate_set if g.num_qudits >= 2
         )
 
@@ -59,13 +60,13 @@ class ConvertToCliffordPlusTPlusRZPass(PassAlias):
             # If target two-qubit gates are not clifford, resynthesize
             IfThenElsePass(
                 CliffordGateSetPredicate(),
-                [NoopPass()],  # Don't do anything if cxs and swaps
+                [NOOPPass()],  # Don't do anything if cxs and swaps
                 [self.resynthesis],  # Otherwise resynthesize to cxs
             ),
 
             # Convert all single-qubit gates to ZXZXZ
             GroupSingleQuditGatePass(),
-            ForEachBlockPass(ZXZXZDecomposition),
+            ForEachBlockPass(ZXZXZDecomposition()),
             UnfoldPass(),
 
             # TODO scanning gate removal if optimization level high enough
