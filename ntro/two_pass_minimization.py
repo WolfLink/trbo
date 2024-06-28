@@ -49,8 +49,8 @@ class TwoPassMinimization(Instantiater):
         self.second_pass = second_pass
         # while I am doing everything single-threaded, it makes more sense to do things one at a time IMO
         self.first_pass_multistarts = 1
-        self.first_pass_retries = 16
-        self.second_pass_multistarts = 8
+        self.first_pass_retries = 32
+        self.second_pass_multistarts = 16
 
     def is_capable(self, circuit):
         for cycle, op in circuit.operations_with_cycles():
@@ -91,6 +91,16 @@ class TwoPassMinimization(Instantiater):
         best_1st_pass_result = 1
         total_tries = 0
 
+        # recording stats from first pass
+        saved_from_retry = 0
+        rejected_from_convergence_failure = 0
+        rejected_from_second_try = 0
+        rejected_as_duplicate = 0
+        accepted_results = 0
+        best_first_pass_reject = 1
+        best_second_pass_reject = 1
+        worst_to_succeed = 0
+
         while total_tries < self.first_pass_retries:
             total_tries += self.first_pass_multistarts
             # run a batch of optimizations
@@ -102,14 +112,20 @@ class TwoPassMinimization(Instantiater):
                 if pass_2_cstr(result) < best_1st_pass_result:
                     best_1st_pass_result = pass_2_cstr(result)
                 if pass_2_cstr(result) > self.threshold:
-                    if pass_2_cstr(result) < 1e-4: # this was a promising result and should undergo higher quality minimization
+                    if pass_2_cstr(result) < 0.01: # this was a promising result and should undergo higher quality minimization
                         result2 = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(pass_1_cost, result)
 
                         if pass_2_cstr(result2) > self.threshold:
+                            rejected_from_second_try += 1
+                            best_second_pass_reject = min(best_second_pass_reject, pass_2_cstr(result2))
                             continue # if its still not an acceptable result, reject it
                         else:
+                            saved_from_retry += 1
+                            worst_to_succeed = max(worst_to_succeed, pass_2_cstr(result))
                             result = result2
                     else:
+                        best_first_pass_reject = min(best_first_pass_reject, pass_2_cstr(result))
+                        rejected_from_convergence_failure += 1
                         continue
 
                 # normalize the parameters to make comparison simpler
@@ -119,14 +135,16 @@ class TwoPassMinimization(Instantiater):
                 for pass_1_result in pass_1_results:
                     if np.all(np.isclose(normalized_result, pass_1_result, 1e-2, 1e-4)):
                         hit = True
+                        rejected_as_duplicate += 1
                         break
                 if not hit:
                     pass_1_results.append(normalized_result)
+                    accepted_results += 1
 
             # if we have met the quota, we can stop retrying
             if len(pass_1_results) >= self.second_pass_multistarts:
                 break
-
+        print(f"Accepted: {accepted_results} ({saved_from_retry} at worst {worst_to_succeed}) Rejected: {rejected_from_convergence_failure} after 1st (best {best_first_pass_reject}), {rejected_from_second_try} after 2nd (best {best_second_pass_reject})")
         if len(pass_1_results) < 1:
             return [0 for _ in range(circuit.num_params)]
         pass_2_cost = self.pass_2_cost_gen.gen_cost(circuit, target)
