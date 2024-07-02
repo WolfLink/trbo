@@ -72,6 +72,10 @@ class TwoPassMinimization(Instantiater):
         self.pass_2_cstr_gen = pass_2_cstr_gen
         self.first_pass = first_pass
         self.second_pass = second_pass
+        # while I am doing everything single-threaded, it makes more sense to do things one at a time IMO
+        self.first_pass_multistarts = 1
+        self.first_pass_retries = 64
+        self.second_pass_multistarts = 32
 
     def is_capable(self, circuit: Circuit) -> bool:
         """

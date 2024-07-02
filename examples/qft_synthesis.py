@@ -14,6 +14,8 @@ import numpy as np
 
 import ntro
 from ntro import *
+from ntro import gridsynth
+
 
 def check_constraint_grad(circuit, target):
     cstr = HilbertSchmidtCostGenerator().gen_cost(circuit, target)
@@ -85,12 +87,15 @@ print(f"Synthesis took {timer() - start}s")
 
 task = CompilationTask(synthesized_circuit, [
     SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass()
+    NumericalTReductionPass(),
+    RzToT_ScanningBruteForcePass(),
+    gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
     ])
 
 start = timer()
 with Compiler() as compiler:
     synthesized_circuit = compiler.compile(task)
+synthesized_circuit.unfold_all()
 print(f"Optimization took {timer() - start}s")
 
 t_count = 0
@@ -106,4 +111,6 @@ print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U)}")
 print(f"T-Count: {t_count}\tRz-Count: {rz_count}")
 
 
+from datetime import datetime
+synthesized_circuit.save(f"qasms/T{t_count}Z{rz_count}-{datetime.now().isoformat()}.qasm")
 
