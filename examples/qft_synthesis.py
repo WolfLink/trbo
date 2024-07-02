@@ -85,16 +85,14 @@ print(f"Synthesis took {timer() - start}s")
 #check_constraint_grad(synthesized_circuit, qft(2**q))
 #exit(0)
 
-task = CompilationTask(synthesized_circuit, [
-    SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass(),
-    RzToT_ScanningBruteForcePass(),
-    gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
-    ])
-
 start = timer()
 with Compiler() as compiler:
-    synthesized_circuit = compiler.compile(task)
+    synthesized_circuit = compiler.compile(synthesized_circuit, [
+    SetModelPass(MachineModel(q, gate_set=gateset)),
+    NumericalTReductionPass(),
+    # RzToT_ScanningBruteForcePass(),
+    # gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
+    ])
 synthesized_circuit.unfold_all()
 print(f"Optimization took {timer() - start}s")
 

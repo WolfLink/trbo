@@ -19,6 +19,7 @@ from bqskit.qis.state.state import StateVector
 from bqskit.qis.state.system import StateSystem
 from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
 from bqskit.qis.unitary import RealVector
+from bqskit.runtime import get_runtime
 
 from ntro.clift import clifford_gates
 from ntro.clift import rz_gates
@@ -32,6 +33,7 @@ _logger = logging.getLogger(__name__)
 
 
 class TwoPassMinimization(Instantiater):
+
     def __init__(self,
         pass_1_cost_gen: CostGen = HilbertSchmidtResidualsGenerator(),
         pass_2_cost_gen: CostGen = RelaxedTCountCostGenerator(),
@@ -134,6 +136,129 @@ class TwoPassMinimization(Instantiater):
             return True
         return False
 
+    async def run_first_pass_async(
+        self,
+        circuit: Circuit,
+        target: UnitaryMatrix | StateVector | StateSystem,
+        max_tries: int,
+        desired_result_count: int,
+    ) -> Sequence[RealVector]:
+        """
+        Run the first pass of the two-pass minimization.
+
+        Attempts to collect `desired_result_count` results that meet the 
+        threshold constraint.  If `max_tries` is reached before the target
+        count is met, the function will return the results collected so far.
+
+        Args:
+            circuit (Circuit): The circuit to optimize.
+
+            target (UnitaryMatrix | StateVector | StateSystem): The target
+                unitary matrix or state vector.
+
+            max_tries (int): The maximum number of batch minimizations.
+
+            desired_result_count (int): The target number of results to collect.
+
+        Returns:
+            (Sequence[RealVector]) A list of results that meet the threshold constraint.
+        """
+        pass_1_results = []
+        pass_1_cost = self.pass_1_cost_gen.gen_cost(circuit, target)
+        pass_2_cstr = self.pass_2_cstr_gen.gen_cost(circuit, target)
+        self.second_pass.constraint = pass_2_cstr
+        total_tries = 0
+
+        while not self.done_with_first_pass(total_tries, pass_1_results):
+            target = self.check_target(target)
+            start_gen = RandomStartGenerator()
+            starts = start_gen.gen_starting_points(
+                self.first_pass_multistarts, circuit, target
+            )
+            results = await get_runtime().map(
+                self.first_pass.minimize,
+                [pass_1_cost] * self.first_pass_multistarts,
+                starts,
+            )
+
+            for result in results:
+                if self.is_duplicate_result(result, pass_1_results):
+                    continue
+                distance = pass_2_cstr(result)
+                # this was a promising result and should undergo 
+                # higher quality minimization
+                if distance > self.threshold and distance < 1e-4:
+                    result = ceres.minimize(pass_1_cost, result)
+                    distance = pass_2_cstr(result)
+                # filter out failures to meet the threshold
+                if distance <= self.threshold:
+                    pass_1_results.append(result)
+
+            total_tries += 1
+
+        if len(pass_1_results) < 1:
+            m = "No successful first pass results were found."
+            raise RuntimeError(m)
+
+        return pass_1_results
+
+    def run_second_pass_minimization(
+        self,
+        pass_2_cost: CostFunction,
+        x0: RealVector,
+    ) -> Tuple[RealVector, float, float] | None:
+        """
+        Perform the constrained optimization of the second pass on one input.
+
+        Returns the result, cost, and constraint value if the constraint is met.
+        Returns None if the constraint is not met.
+        """
+        result = self.second_pass.minimize(pass_2_cost, x0)
+        result_cost = pass_2_cost(result)
+        result_cstr = pass_2_cstr(result)
+        if result_cstr > self.threshold:
+            m = (
+                'Rejected a second pass result because the constraint '
+                f'value was {result_cstr}'
+            )
+            _logger.debug(m)
+            return None
+        
+        return result, result_cost, result_cstr
+
+    async def run_second_pass_async(
+        self,
+        circuit: Circuit,
+        target: UnitaryMatrix | StateVector | StateSystem,
+        first_pass_results: Sequence[RealVector],
+    ) -> RealVector:
+        """
+        Run the second constrained pass of the two-pass minimization.
+        """
+
+        pass_2_cost = self.pass_2_cost_gen.gen_cost(circuit, target)
+        best_result = None
+        best_cost = None
+        best_cstr = None
+
+        results, costs, cstrs = await get_runtime().map(
+            self.run_second_pass_minimization,
+            [pass_2_cost] * len(first_pass_results),
+            first_pass_results,
+        )
+
+        best_result = results[min(zip(costs, cstrs, range(len(costs))))[2]]
+
+        return best_result
+
+    async def two_pass_instantiation_async(
+        self,
+        circuit: Circuit,
+        target: UnitaryMatrix | StateVector | StateSystem,
+    ) -> RealVector:
+        first_pass_results = await self.run_first_pass_async(circuit, target, self.first_pass_retries, self.second_pass_multistarts)
+        return await self.run_second_pass_async(circuit, target, first_pass_results)
+
     def two_pass_instantiation(
         self,
         circuit: Circuit,
@@ -161,7 +286,7 @@ class TwoPassMinimization(Instantiater):
                 )
                 for _ in range(self.first_pass_multistarts)
             ]
-            # from bqskit.runtime import get_runtime
+
             # target = self.check_target(target)
             # start_gen = RandomStartGenerator()
             # starts = start_gen.gen_starting_points(
