@@ -8,12 +8,14 @@ from subprocess import run
 import numpy as np
 
 from bqskit.compiler.basepass import BasePass
+from bqskit.ir import Operation
 
 from bqskit.ir.opt.minimizers.ceres import CeresMinimizer
 from bqskit.ir.opt.cost.functions import HilbertSchmidtResidualsGenerator, HilbertSchmidtCostGenerator
 
 from bqskit.ir.circuit import Circuit
 from bqskit.ir.gates import CircuitGate
+from bqskit.ir.gates import RZGate
 from bqskit.ir.gates.constant.x import XGate
 from bqskit.ir.gates.constant.s import SGate
 from bqskit.ir.gates.constant.t import TGate
@@ -50,6 +52,24 @@ def gridsynth(angle, e=1e-10, pi=False, gridsynth_binary=None):
             circuit.append_gate(str_to_gate[c], 0)
     return CircuitGate(circuit)
 
+class GridsynthSweeper:
+    def __init__(self, circuit, gridsynth_binary):
+        self.points = []
+        self.ops = []
+        self.gridsynth_binary = gridsynth_binary
+        for cycle,op in circuit.operations_with_cycles():
+            if isinstance(op.gate, RZGate):
+                self.points.append((cycle, op.location[0]))
+                self.ops.append((op.params[0], op.location))
+
+    def resynthesize(self, circuit, e):
+        new_gates = [Operation(
+            gridsynth(ops[0], e=e, gridsynth_binary=self.gridsynth_binary),
+            ops[1],
+            [])
+            for ops in self.ops
+            ]
+        circuit.batch_replace(self.points, new_gates)
 
 class GridsynthPass(BasePass):
     def __init__(self, threshold=1e-6, utry=None, gridsynth_binary=None):
@@ -76,22 +96,17 @@ class GridsynthPass(BasePass):
 
         trial_e = np.sqrt(self.threshold-compare_func(result)) / circuit.num_params
         best_circuit = circuit.copy()
-        for cycle, op in best_circuit.operations_with_cycles():
-            if len(op.params) != 1:
-                continue
-            best_circuit.replace_gate((cycle, op.location[0]), gridsynth(op.params[0], e=trial_e, gridsynth_binary=self.gridsynth_binary), op.location)
+        gridsynth = GridsynthSweeper(circuit, self.gridsynth_binary)
+        gridsynth.resynthesize(best_circuit, trial_e)
         best_dist = HilbertSchmidtCostGenerator().gen_cost(best_circuit, target)(best_circuit.params)
         iterations = 0
-        max_iter = 10
+        max_iter = 100
         print(f"Initial Test: {best_dist} using {trial_e} threshold:{self.threshold}")
         if best_dist >= self.threshold:
             while best_dist >= self.threshold and iterations < max_iter:
                 trial_e /= 2
                 best_circuit = circuit.copy()
-                for cycle, op in best_circuit.operations_with_cycles():
-                    if len(op.params) != 1:
-                        continue
-                    best_circuit.replace_gate((cycle, op.location[0]), gridsynth(op.params[0], e=trial_e, gridsynth_binary=self.gridsynth_binary), op.location)
+                gridsynth.resynthesize(best_circuit, trial_e)
                 best_dist = HilbertSchmidtCostGenerator().gen_cost(best_circuit, target)(best_circuit.params)
                 print(f"tried {trial_e} got {best_dist}")
                 iterations += 1
@@ -103,18 +118,17 @@ class GridsynthPass(BasePass):
                 best_circuit = trial_circuit
                 best_dist = trial_dist
                 trial_circuit = circuit.copy()
-                for cycle, op in trial_circuit.operations_with_cycles():
-                    if len(op.params) != 1:
-                        continue
-                    trial_circuit.replace_gate((cycle, op.location[0]), gridsynth(op.params[0], e=trial_e, gridsynth_binary=self.gridsynth_binary), op.location)
+                gridsynth.resynthesize(trial_circuit, trial_e)
                 trial_dist = HilbertSchmidtCostGenerator().gen_cost(trial_circuit, target)(trial_circuit.params)
                 print(f"tried {trial_e} got {trial_dist}")
                 iterations += 1
             trial_e /= 2
 
 
-        circuit.become(best_circuit)
-
-        circuit.unfold_all()
-        print(f"Final Cost: {HilbertSchmidtCostGenerator().gen_cost(circuit, target)(circuit.params)} e={trial_e} iter={iterations}")
+        print(f"Final Cost: {HilbertSchmidtCostGenerator().gen_cost(best_circuit, target)(best_circuit.params)} e={trial_e} iter={iterations}")
+        if best_dist < self.threshold:
+            circuit.become(best_circuit)
+            circuit.unfold_all()
+        else:
+            print(f"Gridsynth failed to find a valid circuit.  This likely indicates a bug in bqskit or ntro.")
 
