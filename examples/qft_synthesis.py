@@ -67,7 +67,6 @@ def qft(n):
 q = 3
 U = qft(2**q)
 U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
-#U = np.kron(U_S, U_S)
 #q = 2
 start = timer()
 #model = MachineModel
@@ -105,5 +104,4 @@ print("")
 print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U)}")
 print(f"T-Count: {t_count}\tRz-Count: {rz_count}")
 
-
-
+synthesized_circuit.save(f'qft_{q}.qasm')

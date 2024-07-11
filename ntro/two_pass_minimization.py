@@ -154,8 +154,7 @@ class TwoPassMinimization(Instantiater):
                 self.first_pass.minimize(
                     pass_1_cost,
                     2 * np.pi * np.random.rand(circuit.num_params),
-                )
-                for _ in range(self.first_pass_multistarts)
+                ) for _ in range(self.first_pass_multistarts)
             ]
             # from bqskit.runtime import get_runtime
             # target = self.check_target(target)

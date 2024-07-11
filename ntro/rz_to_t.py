@@ -1,4 +1,4 @@
-"""This module implements the NumericalTReductionPass."""
+"""This module implements the RzToTPass."""
 from __future__ import annotations
 
 from typing import Callable

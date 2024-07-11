@@ -73,7 +73,3 @@ def circuit_for_rounded_val(val: float, period: float) -> CircuitGate:
         elif rounded_val == 4:
             circuit.append_gate(ZGate(), 0)
     return CircuitGate(circuit)
-
-
-
-
