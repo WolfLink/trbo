@@ -20,7 +20,7 @@ from ntro.clift import rz_gates
 
 from ntro.two_pass_minimization import TwoPassMinimization
 from ntro.tcount import RelaxedTCountCostGenerator
-from ntro.rz_to_t import RzToTPass
+from ntro.rz_to_t import RzToTPass, RzToT_ScanningBruteForcePass
 
 import logging
 
@@ -92,10 +92,11 @@ class NumericalTReductionPass(BasePass):
                 )
                 relaxedTCount = RelaxedTCountCostGenerator(angle).gen_cost(best_result, utry)
                 result = await get_runtime().submit(
-                        Circuit.instantiate,
+                        self.instantiate_options["method"].multi_start_instantiate_async,
                         trial_circuit,
                         target=utry,
-                        **self.instantiate_options
+                        num_starts=32,
+                        # **self.instantiate_options
                 )
                 if result is None:
                     break
