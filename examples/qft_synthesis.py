@@ -104,7 +104,7 @@ for gate in synthesized_circuit.gate_set:
     elif f"{gate}" in ["RZGate"]:
         rz_count += synthesized_circuit.count(gate)
 print("")
-print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U)}")
+print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U, 1)}")
 print(f"T-Count: {t_count}\tRz-Count: {rz_count}")
 
 from datetime import datetime
