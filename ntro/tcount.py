@@ -11,14 +11,14 @@ import numpy.typing as npt
 
 
 class RelaxedTCountCostGenerator(CostFunctionGenerator):
-    def __init__(self, period: int=4) -> None:
+    def __init__(self, period: float=np.pi / 4) -> None:
         """
         Constructor for RelaxedTCountCostGenerator.
 
         Args:
-            period (int): The period of the triangle wave cost function.
-                Parameter values will be pushed towards multiple of 
-                pi / period. (Default: 4)
+            period (float): The period of the triangle wave cost function.
+                Parameter values will be pushed towards a multiple this
+                (Default: np.pi / 4)
         """
         super().__init__()
         self.period = period
@@ -32,28 +32,25 @@ class RelaxedTCountCostGenerator(CostFunctionGenerator):
 
 
 class RelaxedTCount(DifferentiableCostFunction):
-    def __init__(self, period: int) -> None:
+    def __init__(self, period: float) -> None:
         super().__init__()
         self.period = period
 
     def get_cost(self, params: RealVector) -> float:
-        period = self.period
-        if params.shape[0] < 1:
+        if len(params) < 1:
             return 0
-        deviation = self.get_arr(params)
+        if not isinstance(params, np.ndarray):
+            params = np.array(params)
+        deviation = get_arr(params, self.period)
         cost = np.sum(deviation)
-        return cost
-
-    def get_arr(self, params: RealVector) -> npt.NDArray[np.float64]:
-        period = self.period
-        if params.shape[0] < 1:
-            return []
-        shifted_params = np.mod(params - period / 2, period)
-        deviation = np.abs(shifted_params - period / 2)
-        return (2 / period) * deviation
+        return float(cost)
 
     def get_grad(self, params: RealVector) -> npt.NDArray[np.float64]:
-        period = self.period
-        deviation = np.mod(params, period) - period / 2
+        deviation = np.mod(params, self.period) - self.period / 2
         signs = np.sign(deviation)
-        return -1 * (2 / period) * signs
+        return -1 * (2 / self.period) * signs
+
+def get_arr(params: np.ndarray, period: float) -> npt.NDArray[np.float64]:
+    shifted_params = np.mod(params - period / 2, period)
+    deviation = np.abs(shifted_params - period / 2)
+    return (2 / period) * deviation
