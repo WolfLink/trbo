@@ -25,11 +25,53 @@ from ntro.clift import clifford_gates
 from ntro.clift import rz_gates
 from ntro.clift import t_gates
 from ntro.tcount import RelaxedTCountCostGenerator
-from ntro.constrained_minimizer import ConstrainedMinimizer
+from ntro.constrained_minimizer import ConstrainedMinimizer, SLSQPConstrainedMinimizer
 
 import logging
 
 _logger = logging.getLogger(__name__)
+
+
+def first_pass_minimize_cost_gen_wrapper(
+    first_pass: Minimizer,
+    cost_gen: CostGen,
+    circuit: Circuit,
+    target: UnitaryMatrix | StateVector | StateSystem,
+    x0: RealVector,
+) -> RealVector:
+    """Wrapper so we don't pickle the cost function."""
+    pass_1_cost = cost_gen.gen_cost(circuit, target)
+    return first_pass.minimize(pass_1_cost, x0)
+
+
+def run_second_pass_minimization(
+    second_pass: ConstrainedMinimizer,
+    pass_2_cost_gen: CostGen,
+    pass_2_cstr_gen: CostGen,
+    circuit: Circuit,
+    target: UnitaryMatrix | StateVector | StateSystem,
+    x0: RealVector,
+) -> Tuple[RealVector, float, float] | None:
+    """
+    Perform the constrained optimization of the second pass on one input.
+
+    Returns the result, cost, and constraint value if the constraint is met.
+    Returns None if the constraint is not met.
+    """
+    pass_2_cost = pass_2_cost_gen.gen_cost(circuit, target)
+    pass_2_cstr = pass_2_cstr_gen.gen_cost(circuit, target)
+    result = second_pass.constrained_minimize(pass_2_cost, pass_2_cstr, x0)
+    result_cost = pass_2_cost(result)
+    result_cstr = pass_2_cstr(result)
+    if result_cstr > second_pass.constraint_threshold:
+        m = (
+            'Rejected a second pass result because the constraint '
+            f'value was {result_cstr}'
+        )
+        _logger.debug(m)
+        return None
+    
+    return result, result_cost, result_cstr
 
 
 class TwoPassMinimization(Instantiater):
@@ -39,7 +81,7 @@ class TwoPassMinimization(Instantiater):
         pass_2_cost_gen: CostGen = RelaxedTCountCostGenerator(),
         pass_2_cstr_gen: CostGen = HilbertSchmidtCostGenerator(),
         first_pass: Optional[Minimizer] = CeresMinimizer(),
-        second_pass: Optional[Minimizer] = None,
+        second_pass: Optional[ConstrainedMinimizer] = None,
         success_threshold: float = 1e-8,
         **kwargs: dict[str, Any],
     ) -> None:
@@ -67,7 +109,7 @@ class TwoPassMinimization(Instantiater):
             self.second_pass_multistarts = 8
 
         if second_pass is None:
-            second_pass = ConstrainedMinimizer(None, self.threshold)
+            second_pass = SLSQPConstrainedMinimizer(self.threshold)
 
         self.pass_1_cost_gen = pass_1_cost_gen
         self.pass_2_cost_gen = pass_2_cost_gen
@@ -77,7 +119,7 @@ class TwoPassMinimization(Instantiater):
         # while I am doing everything single-threaded, it makes more sense to do things one at a time IMO
         self.first_pass_multistarts = 1
         self.first_pass_retries = 64
-        self.second_pass_multistarts = 32
+        self.second_pass_multistarts = 32  # TODO: remove during cleanup
 
     def is_capable(self, circuit: Circuit) -> bool:
         """
@@ -128,13 +170,15 @@ class TwoPassMinimization(Instantiater):
         self,
         num_tries: int,
         results: Sequence[RealVector],
+        num_starts: int,
     ) -> bool:
         """Whether or not to move on to the second pass."""
         if num_tries >= self.first_pass_retries:
             return True
-        if len(results) >= self.second_pass_multistarts:
+        if len(results) >= num_starts:
             return True
         return False
+
 
     async def run_first_pass_async(
         self,
@@ -166,18 +210,26 @@ class TwoPassMinimization(Instantiater):
         pass_1_results = []
         pass_1_cost = self.pass_1_cost_gen.gen_cost(circuit, target)
         pass_2_cstr = self.pass_2_cstr_gen.gen_cost(circuit, target)
-        self.second_pass.constraint = pass_2_cstr
+        ceres = CeresMinimizer(ftol=5e-16, gtol=1e-15)
         total_tries = 0
 
-        while not self.done_with_first_pass(total_tries, pass_1_results):
+        while not self.done_with_first_pass(total_tries, pass_1_results, desired_result_count):
             target = self.check_target(target)
             start_gen = RandomStartGenerator()
             starts = start_gen.gen_starting_points(
                 self.first_pass_multistarts, circuit, target
             )
+            # results = await get_runtime().map(
+            #     self.first_pass.minimize,
+            #     [pass_1_cost] * self.first_pass_multistarts,
+            #     starts,
+            # )
             results = await get_runtime().map(
-                self.first_pass.minimize,
-                [pass_1_cost] * self.first_pass_multistarts,
+                first_pass_minimize_cost_gen_wrapper,
+                [self.first_pass] * self.first_pass_multistarts,
+                [self.pass_1_cost_gen] * self.first_pass_multistarts,
+                [circuit] * self.first_pass_multistarts,
+                [target] * self.first_pass_multistarts,
                 starts,
             )
 
@@ -202,30 +254,6 @@ class TwoPassMinimization(Instantiater):
 
         return pass_1_results
 
-    def run_second_pass_minimization(
-        self,
-        pass_2_cost: CostFunction,
-        x0: RealVector,
-    ) -> Tuple[RealVector, float, float] | None:
-        """
-        Perform the constrained optimization of the second pass on one input.
-
-        Returns the result, cost, and constraint value if the constraint is met.
-        Returns None if the constraint is not met.
-        """
-        result = self.second_pass.minimize(pass_2_cost, x0)
-        result_cost = pass_2_cost(result)
-        result_cstr = pass_2_cstr(result)
-        if result_cstr > self.threshold:
-            m = (
-                'Rejected a second pass result because the constraint '
-                f'value was {result_cstr}'
-            )
-            _logger.debug(m)
-            return None
-        
-        return result, result_cost, result_cstr
-
     async def run_second_pass_async(
         self,
         circuit: Circuit,
@@ -236,28 +264,58 @@ class TwoPassMinimization(Instantiater):
         Run the second constrained pass of the two-pass minimization.
         """
 
-        pass_2_cost = self.pass_2_cost_gen.gen_cost(circuit, target)
-        best_result = None
-        best_cost = None
-        best_cstr = None
-
-        results, costs, cstrs = await get_runtime().map(
-            self.run_second_pass_minimization,
-            [pass_2_cost] * len(first_pass_results),
+        task_results = await get_runtime().map(
+            run_second_pass_minimization,
+            [self.second_pass] * len(first_pass_results),
+            [self.pass_2_cost_gen] * len(first_pass_results),
+            [self.pass_2_cstr_gen] * len(first_pass_results),
+            [circuit] * len(first_pass_results),
+            [target] * len(first_pass_results),
             first_pass_results,
         )
+        filtered_results = [r for r in task_results if r is not None]
+        if len(filtered_results) < 1:
+            print("No successful second pass results were found.")
+            return None
+        results, costs, cstrs = zip(*filtered_results)
 
         best_result = results[min(zip(costs, cstrs, range(len(costs))))[2]]
-
         return best_result
 
     async def two_pass_instantiation_async(
         self,
         circuit: Circuit,
         target: UnitaryMatrix | StateVector | StateSystem,
+        num_starts: int,
     ) -> RealVector:
-        first_pass_results = await self.run_first_pass_async(circuit, target, self.first_pass_retries, self.second_pass_multistarts)
+        first_pass_results = await self.run_first_pass_async(circuit, target, self.first_pass_retries, num_starts)
         return await self.run_second_pass_async(circuit, target, first_pass_results)
+
+    async def multi_start_instantiate_async(
+        self,
+        circuit: Circuit,
+        target: UnitaryMatrix | StateVector | StateSystem,
+        num_starts: int,
+    ) -> Circuit:
+        """
+        Run the two-pass minimization multiple times and return best result.
+
+        Args:
+            circuit (Circuit): The circuit to optimize.
+
+            target (UnitaryMatrix | StateVector | StateSystem): The target
+                unitary matrix or state vector.
+
+            num_starts (int): The number of times to run the two-pass minimization.
+
+        Returns:
+            (Circuit) The best circuit found.
+        """
+        result = await self.two_pass_instantiation_async(circuit, target, num_starts)
+        if result is None:
+            return None  # TODO: handle this better
+        circuit.set_params(result)
+        return circuit
 
     def two_pass_instantiation(
         self,
@@ -269,14 +327,13 @@ class TwoPassMinimization(Instantiater):
         pass_1_results = []
         pass_1_cost = self.pass_1_cost_gen.gen_cost(circuit, target)
         pass_2_cstr = self.pass_2_cstr_gen.gen_cost(circuit, target)
-        self.second_pass.constraint = pass_2_cstr
         total_tries = 0
 
         # Ceres may be used to retry promising results that don't
         # quite meet the threshold
         ceres = CeresMinimizer(ftol=5e-16, gtol=1e-15)
 
-        while not self.done_with_first_pass(total_tries, pass_1_results):
+        while not self.done_with_first_pass(total_tries, pass_1_results, self.second_pass_multistarts):
             # TODO: Parallelize
             # run a batch of optimizations
             results = [
@@ -325,7 +382,7 @@ class TwoPassMinimization(Instantiater):
 
         for x0 in pass_1_results:
             # TODO: Parallelize
-            result = self.second_pass.minimize(pass_2_cost, x0)
+            result = self.second_pass.constrained_minimize(pass_2_cost, pass_2_cstr, x0)
             result_cost = pass_2_cost(result)
             result_cstr = pass_2_cstr(result)
             if result_cstr > self.threshold:

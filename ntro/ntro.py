@@ -92,9 +92,10 @@ class NumericalTReductionPass(BasePass):
                 )
                 relaxedTCount = RelaxedTCountCostGenerator(angle).gen_cost(best_result, utry)
                 result = await get_runtime().submit(
-                        self.instantiate_options["method"].two_pass_instantiation_async,
+                        self.instantiate_options["method"].multi_start_instantiate_async,
                         trial_circuit,
                         target=utry,
+                        num_starts=32,
                         # **self.instantiate_options
                 )
                 if result is None:
