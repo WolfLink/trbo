@@ -83,7 +83,7 @@ class NumericalTReductionPass(BasePass):
                 for _ in range(circuit.num_params+1):
                     # check for constant circuits
                     if trial_circuit.num_params < 1:
-                        if trial_circuit.get_unitary().get_distance_from(utry) < self.success_threshold:
+                        if trial_circuit.get_unitary().get_distance_from(utry, degree=1) < self.success_threshold:
                             current_result = trial_circuit
                         else:
                             trial_circuit = current_result.copy()
@@ -127,7 +127,7 @@ class NumericalTReductionPass(BasePass):
                         print(f"Could not find {minval}")
                         exit(1)
                     trial_circuit.unfold_all()
-            if current_result.get_unitary().get_distance_from(utry) < self.success_threshold:
+            if current_result.get_unitary().get_distance_from(utry, degree=1) < self.success_threshold:
                 curr_rz = current_result.count(RZGate())
                 best_rz = best_result.count(RZGate())
                 curr_t = current_result.count(TGate()) + current_result.count(TdgGate())
@@ -139,10 +139,12 @@ class NumericalTReductionPass(BasePass):
                     if curr_t < best_t:
                         best_result = current_result
                     elif curr_t == best_t:
-                        if current_result.get_unitary().get_distance_from(utry) < best_result.get_unitary().get_distance_from(utry):
+                        if current_result.get_unitary().get_distance_from(utry, degree=1) < best_result.get_unitary().get_distance_from(utry, degree=1):
                             best_result = current_result
+            else:
+                print(f"Result {i} failed the threshold check {self.success_threshold} > {current_result.get_unitary().get_distance_from(utry, degree=1)}")
             print(f"Best result after loop {i}:")
-            print(f"Rz: {best_result.count(RZGate())}\tT: {best_result.count(TGate()) + best_result.count(TdgGate())}\tDist: {best_result.get_unitary().get_distance_from(utry)}")
+            print(f"Rz: {best_result.count(RZGate())}\tT: {best_result.count(TGate()) + best_result.count(TdgGate())}\tDist: {best_result.get_unitary().get_distance_from(utry, degree=1)}")
 
 
         circuit.become(best_result)
