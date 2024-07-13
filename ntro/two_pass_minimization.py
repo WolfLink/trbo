@@ -29,6 +29,7 @@ class TwoPassMinimization(Instantiater):
             pass_2_cstr_gen: CostFunctionGenerator = HilbertSchmidtCostGenerator(),
             first_pass: Minimizer | None = None,
             second_pass: Minimizer | None = None,
+            multistarts = (32,16),
             **kwargs: dict[str, Any],
             ) -> None:
 
@@ -49,8 +50,8 @@ class TwoPassMinimization(Instantiater):
         self.second_pass = second_pass
         # while I am doing everything single-threaded, it makes more sense to do things one at a time IMO
         self.first_pass_multistarts = 1
-        self.first_pass_retries = 16
-        self.second_pass_multistarts = 8
+        self.first_pass_retries = multistarts[0]
+        self.second_pass_multistarts = multistarts[1]
 
     def is_capable(self, circuit):
         for cycle, op in circuit.operations_with_cycles():
@@ -144,7 +145,7 @@ class TwoPassMinimization(Instantiater):
             # if we have met the quota, we can stop retrying
             if len(pass_1_results) >= self.second_pass_multistarts:
                 break
-        print(f"Accepted: {accepted_results} ({saved_from_retry} at worst {worst_to_succeed}) Rejected: {rejected_from_convergence_failure} after 1st (best {best_first_pass_reject}), {rejected_from_second_try} after 2nd (best {best_second_pass_reject})")
+        #print(f"Accepted: {accepted_results} ({saved_from_retry} at worst {worst_to_succeed}) Rejected: {rejected_from_convergence_failure} after 1st (best {best_first_pass_reject}), {rejected_from_second_try} after 2nd (best {best_second_pass_reject})")
         if len(pass_1_results) < 1:
             return [0 for _ in range(circuit.num_params)]
         pass_2_cost = self.pass_2_cost_gen.gen_cost(circuit, target)
