@@ -77,9 +77,10 @@ class NumericalTReductionPass(BasePass):
         #circuit.instantiate(target=utry, **self.instantiate_options)
         best_result = best_circuit
         for i in range(self.full_loops):
-            current_result = best_circuit
+            current_result = best_circuit.copy()
             trial_circuit = best_circuit.copy()
             for period in [0.5, 0.25]:
+                print(f"Period: {i}-{period} Rz: {trial_circuit.count(RZGate())}")
                 for _ in range(circuit.num_params+1):
                     # check for constant circuits
                     if trial_circuit.num_params < 1:
