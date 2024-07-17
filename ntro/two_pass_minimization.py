@@ -32,16 +32,20 @@ _logger = logging.getLogger(__name__)
 
 
 class FutureQueue:
-    def __init__(self, future):
+    def __init__(self, future, length):
         self.future = future
         self.queue = []
+        self.remaining = length
 
     def __aiter__(self):
         return self
 
     async def __anext__(self):
         if len(self.queue) > 0:
+            self.remaining -= 1
             return self.queue.pop(0)
+        elif self.remaining < 1:
+            raise StopAsyncIteration
         else:
             try:
                 self.queue.extend(await get_runtime().next(self.future))
@@ -229,7 +233,7 @@ class TwoPassMinimization(Instantiater):
 
         pass_1_results = []
         second_pass_futures = []
-        async for index, result in FutureQueue(first_pass_future):
+        async for index, result in FutureQueue(first_pass_future, self.first_pass_multistarts):
             if result is None:
                 continue
             if self.is_duplicate_result(result, pass_1_results):

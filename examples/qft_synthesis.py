@@ -87,7 +87,7 @@ start = timer()
 with Compiler() as compiler:
     synthesized_circuit = compiler.compile(synthesized_circuit, [
     SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass(full_loops=2),
+    NumericalTReductionPass(full_loops=8),
     # RzToT_ScanningBruteForcePass(),
     # gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
     ])
