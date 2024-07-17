@@ -66,10 +66,9 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
 # example: qft circuit
-q = 3
+q = 2
 U = qft(2**q)
 U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
-#U = np.kron(U_S, U_S)
 #q = 2
 start = timer()
 #model = MachineModel
@@ -85,16 +84,14 @@ print(f"Synthesis took {timer() - start}s")
 #check_constraint_grad(synthesized_circuit, qft(2**q))
 #exit(0)
 
-task = CompilationTask(synthesized_circuit, [
-    SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass(),
-    RzToT_ScanningBruteForcePass(),
-    gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
-    ])
-
 start = timer()
 with Compiler() as compiler:
-    synthesized_circuit = compiler.compile(task)
+    synthesized_circuit = compiler.compile(synthesized_circuit, [
+    SetModelPass(MachineModel(q, gate_set=gateset)),
+    NumericalTReductionPass(),
+    # RzToT_ScanningBruteForcePass(),
+    # gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
+    ])
 synthesized_circuit.unfold_all()
 print(f"Optimization took {timer() - start}s")
 
@@ -107,10 +104,8 @@ for gate in synthesized_circuit.gate_set:
     elif f"{gate}" in ["RZGate"]:
         rz_count += synthesized_circuit.count(gate)
 print("")
-print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U)}")
+print(f"Distance: {synthesized_circuit.get_unitary().get_distance_from(U, 1)}")
 print(f"T-Count: {t_count}\tRz-Count: {rz_count}")
 
-
-from datetime import datetime
-synthesized_circuit.save(f"qasms/T{t_count}Z{rz_count}-{datetime.now().isoformat()}.qasm")
-
+#from datetime import datetime
+#synthesized_circuit.save(f"qasms/T{t_count}Z{rz_count}-{datetime.now().isoformat()}.qasm")
