@@ -32,6 +32,7 @@ class NumericalTReductionPass(BasePass):
     def __init__(
         self,
         success_threshold: float = 1e-8,
+        full_loops: int = 8,
         **kwargs,
     ) -> None:
         """
@@ -48,7 +49,7 @@ class NumericalTReductionPass(BasePass):
         }
         self.success_threshold = success_threshold
         self.extra_kwargs = kwargs
-        self.full_loops = 8
+        self.full_loops = full_loops
 
         self.acceptable_gates = clifford_gates + t_gates + rz_gates
         self.target_periods = [0.5 * np.pi, 0.25 * np.pi]

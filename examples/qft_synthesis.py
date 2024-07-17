@@ -83,12 +83,11 @@ print(f"Synthesis took {timer() - start}s")
 # run gradient test
 #check_constraint_grad(synthesized_circuit, qft(2**q))
 #exit(0)
-
 start = timer()
 with Compiler() as compiler:
     synthesized_circuit = compiler.compile(synthesized_circuit, [
     SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass(),
+    NumericalTReductionPass(full_loops=2),
     # RzToT_ScanningBruteForcePass(),
     # gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
     ])

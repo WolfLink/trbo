@@ -247,15 +247,17 @@ class TwoPassMinimization(Instantiater):
                     )
             second_pass_futures.append(new_second_pass_future)
             if len(second_pass_futures) >= self.second_pass_multistarts:
-                get_runtime().cancel(first_pass_future)
+                #get_runtime().cancel(first_pass_future)
                 break
-
+       # await first_pass_future
+        get_runtime().cancel(first_pass_future)
         if len(second_pass_futures) < 1:
             print("No successful first pass results were found.")
             return None
 
         task_results = [await future for future in second_pass_futures]
 
+        assert len(task_results) == len(second_pass_futures)
         filtered_results = [r for r in task_results if r is not None]
         if len(filtered_results) < 1:
             print("No successful second pass results were found.")
