@@ -31,16 +31,52 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-def first_pass_minimize_cost_gen_wrapper(
+class FutureQueue:
+    def __init__(self, future):
+        self.future = future
+        self.queue = []
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if len(self.queue) > 0:
+            return self.queue.pop(0)
+        else:
+            try:
+                self.queue.extend(await get_runtime().next(self.future))
+                return self.queue.pop(0)
+            except RuntimeError:
+                raise StopAsyncIteration
+
+
+def run_first_pass_minimization(
     first_pass: Minimizer,
     cost_gen: CostGen,
+    threshold_cost_gen: CostGen,
     circuit: Circuit,
     target: UnitaryMatrix | StateVector | StateSystem,
     x0: RealVector,
+    target_threshold: float,
+    low_quality_threshold: float = 1e-4,
 ) -> RealVector:
     """Wrapper so we don't pickle the cost function."""
     pass_1_cost = cost_gen.gen_cost(circuit, target)
-    return first_pass.minimize(pass_1_cost, x0)
+    threshold_cost = threshold_cost_gen.gen_cost(circuit, target)
+
+    result = first_pass.minimize(pass_1_cost, x0)
+
+    distance = abs(threshold_cost(result))
+    if distance > target_threshold and distance < low_quality_threshold:
+        # if we get a result that is promising but outside the threshold,
+        # try to refine it a little more using higher quality optimizer settings
+        ceres = CeresMinimizer(ftol=5e-16, gtol=1e-15)
+        result = ceres.minimize(pass_1_cost, result)
+        distance = abs(threshold_cost(result))
+        
+    if distance > target_threshold:
+        return None
+    return result
 
 
 def run_second_pass_minimization(
@@ -82,7 +118,7 @@ class TwoPassMinimization(Instantiater):
         first_pass: Optional[Minimizer] = CeresMinimizer(),
         second_pass: Optional[ConstrainedMinimizer] = None,
         success_threshold: float = 1e-8,
-        multistarts = (16, 8, 16),
+        multistarts = (128, 16),
         **kwargs: dict[str, Any],
     ) -> None:
         """
@@ -99,14 +135,10 @@ class TwoPassMinimization(Instantiater):
             self.first_pass_multistarts = kwargs.get('first_pass_multistarts')
         else:
             self.first_pass_multistarts = multistarts[0]
-        if 'first_pass_retries' in kwargs:
-            self.first_pass_retries = kwargs.get('first_pass_retries')
-        else:
-            self.first_pass_retries = multistarts[1]
         if 'second_pass_multistarts' in kwargs:
             self.second_pass_multistarts = kwargs.get('second_pass_multistarts')
         else:
-            self.second_pass_multistarts = multistarts[2]  # TODO: Remove during cleanup
+            self.second_pass_multistarts = multistarts[1]  # TODO: Remove during cleanup
 
         if second_pass is None:
             second_pass = SLSQPConstrainedMinimizer(self.threshold)
@@ -170,96 +202,60 @@ class TwoPassMinimization(Instantiater):
             return True
         return False
 
-
-    async def run_first_pass_async(
+    async def two_pass_instantiation_async(
         self,
         circuit: Circuit,
         target: UnitaryMatrix | StateVector | StateSystem,
-        max_tries: int,
-        desired_result_count: int,
-    ) -> Sequence[RealVector]:
-        """
-        Run the first pass of the two-pass minimization.
+        num_starts: int,
+    ) -> RealVector:
 
-        Attempts to collect `desired_result_count` results that meet the 
-        threshold constraint.  If `max_tries` is reached before the target
-        count is met, the function will return the results collected so far.
-
-        Args:
-            circuit (Circuit): The circuit to optimize.
-
-            target (UnitaryMatrix | StateVector | StateSystem): The target
-                unitary matrix or state vector.
-
-            max_tries (int): The maximum number of batch minimizations.
-
-            desired_result_count (int): The target number of results to collect.
-
-        Returns:
-            (Sequence[RealVector]) A list of results that meet the threshold constraint.
-        """
-        pass_1_results = []
-        pass_1_cost = self.pass_1_cost_gen.gen_cost(circuit, target)
-        pass_2_cstr = self.pass_2_cstr_gen.gen_cost(circuit, target)
-        ceres = CeresMinimizer(ftol=5e-16, gtol=1e-15)
-        total_tries = 0
-        best_reject = 1
 
         target = self.check_target(target)
-        while not self.done_with_first_pass(total_tries, pass_1_results, desired_result_count):
-            start_gen = RandomStartGenerator()
-            starts = start_gen.gen_starting_points(
-                self.first_pass_multistarts, circuit, target
-            )
-            results = await get_runtime().map(
-                first_pass_minimize_cost_gen_wrapper,
+        start_gen = RandomStartGenerator()
+        starts = start_gen.gen_starting_points(
+            self.first_pass_multistarts, circuit, target
+        )
+
+        first_pass_future = get_runtime().map(
+                run_first_pass_minimization,
                 [self.first_pass] * self.first_pass_multistarts,
                 [self.pass_1_cost_gen] * self.first_pass_multistarts,
+                [self.pass_2_cstr_gen] * self.first_pass_multistarts,
                 [circuit] * self.first_pass_multistarts,
                 [target] * self.first_pass_multistarts,
                 starts,
-            )
+                [self.threshold] * self.first_pass_multistarts,
+                )
 
-            for result in results:
-                if self.is_duplicate_result(result, pass_1_results):
-                    continue
-                distance = abs(pass_2_cstr(result))
+        pass_1_results = []
+        second_pass_futures = []
+        async for index, result in FutureQueue(first_pass_future):
+            if result is None:
+                continue
+            if self.is_duplicate_result(result, pass_1_results):
+                continue
+            pass_1_results.append(result)
+            assert len(pass_1_results) <= self.second_pass_multistarts
+            new_second_pass_future = get_runtime().submit(
+                    run_second_pass_minimization,
+                    self.second_pass,
+                    self.pass_2_cost_gen,
+                    self.pass_2_cstr_gen,
+                    circuit,
+                    target,
+                    result,
+                    )
+            second_pass_futures.append(new_second_pass_future)
+            if len(second_pass_futures) >= self.second_pass_multistarts:
+                get_runtime().cancel(first_pass_future)
+                break
 
-                if distance > self.threshold and distance < 1e-4:
-                    # this was a promising result and should undergo 
-                    # higher quality minimization
-                    result = ceres.minimize(pass_1_cost, result)
-                    distance = abs(pass_2_cstr(result))
-                # filter out failures to meet the threshold
-                if distance <= self.threshold:
-                    pass_1_results.append(result)
-                else:
-                    best_reject = distance
-
-            total_tries += 1
-        return pass_1_results
-
-    async def run_second_pass_async(
-        self,
-        circuit: Circuit,
-        target: UnitaryMatrix | StateVector | StateSystem,
-        first_pass_results: Sequence[RealVector],
-    ) -> RealVector:
-        """
-        Run the second constrained pass of the two-pass minimization.
-        """
-        if len(first_pass_results) < 1:
+        if len(second_pass_futures) < 1:
             print("No successful first pass results were found.")
             return None
-        task_results = await get_runtime().map(
-            run_second_pass_minimization,
-            [self.second_pass] * len(first_pass_results),
-            [self.pass_2_cost_gen] * len(first_pass_results),
-            [self.pass_2_cstr_gen] * len(first_pass_results),
-            [circuit] * len(first_pass_results),
-            [target] * len(first_pass_results),
-            first_pass_results,
-        )
+
+        task_results = [await future for future in second_pass_futures]
+
         filtered_results = [r for r in task_results if r is not None]
         if len(filtered_results) < 1:
             print("No successful second pass results were found.")
@@ -268,20 +264,6 @@ class TwoPassMinimization(Instantiater):
 
         best_result = results[min(zip(costs, cstrs, range(len(costs))))[2]]
         return best_result
-
-    async def two_pass_instantiation_async(
-        self,
-        circuit: Circuit,
-        target: UnitaryMatrix | StateVector | StateSystem,
-        num_starts: int,
-    ) -> RealVector:
-        first_pass_results = await self.run_first_pass_async(
-            circuit,
-            target,
-            self.first_pass_retries,
-            num_starts,
-        )
-        return await self.run_second_pass_async(circuit, target, first_pass_results)
 
     async def multi_start_instantiate_async(
         self,
