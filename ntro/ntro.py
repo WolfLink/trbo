@@ -148,6 +148,6 @@ class NumericalTReductionPass(BasePass):
                             best_circuit = candidate_circuit
             else:
                 print(f"Result {i} failed the threshold check {self.success_threshold} > {candidate_circuit.get_unitary().get_distance_from(utry, degree=1)}")
-            print(f"Best result after loop {i}: dist={best_circuit.get_distance_from(utry, degree=1)} {best_circuit.gate_counts}")
+            print(f"Best result after loop {i}: dist={best_circuit.get_unitary().get_distance_from(utry, degree=1)} {best_circuit.gate_counts}")
 
         circuit.become(best_circuit)
