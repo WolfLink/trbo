@@ -72,7 +72,7 @@ class RzToTPass(BasePass):
 
 
 class RzToT_ScanningBruteForcePass(BasePass):
-    def __init__(self, threshold=1e-6, enable_t=True, utry=None, gate_limit=10):
+    def __init__(self, threshold=1e-6, enable_t=True, utry=None, gate_limit=4):
         self.rtol = 1e-5
         self.atol = 1e-8
         self.threshold = threshold
