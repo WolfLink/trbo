@@ -210,10 +210,13 @@ class TwoPassMinimization(Instantiater):
         self,
         circuit: Circuit,
         target: UnitaryMatrix | StateVector | StateSystem,
-        num_starts: int,
-    ) -> RealVector:
+        num_starts: (int, int) | NoneType,
+    ) -> RealVector | NoneType | [RealVector]:
 
 
+        if num_starts is not None:
+            self.first_pass_multistarts = num_starts[0]
+            self.second_pass_multistarts = num_starts[1]
         target = self.check_target(target)
         start_gen = RandomStartGenerator()
         starts = start_gen.gen_starting_points(
@@ -256,7 +259,7 @@ class TwoPassMinimization(Instantiater):
        # await first_pass_future
         get_runtime().cancel(first_pass_future)
         if len(second_pass_futures) < 1:
-            print("No successful first pass results were found.")
+            #print("No successful first pass results were found.")
             return None
 
         task_results = [await future for future in second_pass_futures]
@@ -264,8 +267,9 @@ class TwoPassMinimization(Instantiater):
         assert len(task_results) == len(second_pass_futures)
         filtered_results = [r for r in task_results if r is not None]
         if len(filtered_results) < 1:
-            print("No successful second pass results were found.")
-            return None
+            #print("No successful second pass results were found.")
+            return pass_1_results[0]
+
         results, costs, cstrs = zip(*filtered_results)
 
         best_result = results[min(zip(costs, cstrs, range(len(costs))))[2]]
@@ -275,7 +279,7 @@ class TwoPassMinimization(Instantiater):
         self,
         circuit: Circuit,
         target: UnitaryMatrix | StateVector | StateSystem,
-        num_starts: int,
+        num_starts: (int, int) | NoneType = None,
     ) -> Circuit:
         """
         Run the two-pass minimization multiple times and return best result.
@@ -302,91 +306,34 @@ class TwoPassMinimization(Instantiater):
         circuit: Circuit,
         target: UnitaryMatrix | StateVector | StateSystem,
         x0: RealVector | NoneType = None, # TODO allow for fine-tuning based on an input vector
-    ) -> RealVector:
-        return self.two_pass_instantiation(circuit, target)
+    ) -> Circuit:
 
-    def two_pass_instantiation(
-        self,
-        circuit: Circuit,
-        target: UnitaryMatrix | StateVector | StateSystem,
-    ) -> RealVector:
-
-        # run the first pass
-        pass_1_results = []
-        pass_1_cost = self.pass_1_cost_gen.gen_cost(circuit, target)
-        pass_2_cstr = self.pass_2_cstr_gen.gen_cost(circuit, target)
-        total_tries = 0
-
-        # Ceres may be used to retry promising results that don't
-        # quite meet the threshold
-        ceres = CeresMinimizer(ftol=5e-16, gtol=1e-15)
-
-        while not self.done_with_first_pass(
-            total_tries,
-            pass_1_results,
-            self.second_pass_multistarts,
-        ):
-            # run a batch of optimizations
-            results = [
-                self.first_pass.minimize(
-                    pass_1_cost,
-                    2 * np.pi * np.random.rand(circuit.num_params),
-                ) for _ in range(self.first_pass_multistarts)
-            ]
-
-            # filter the results for failures and duplicates
-            for result in results:
-                if self.is_duplicate_result(result, pass_1_results):
-                    continue
-                distance = pass_2_cstr(result)
-                # this was a promising result and should undergo 
-                # higher quality minimization
-                if distance > self.threshold and distance < 1e-4:
-                    result = ceres.minimize(pass_1_cost, result)
-                    distance = pass_2_cstr(result)
-                # filter out failures to meet the threshold
-                if distance <= self.threshold:
-                    pass_1_results.append(result)
-            total_tries += 1
-
-        if len(pass_1_results) < 1:
-            m = "No successful first pass results were found."
-            _logger.warning(m)
-            return [0 for _ in range(circuit.num_params)]
-
-        pass_2_cost = self.pass_2_cost_gen.gen_cost(circuit, target)
-        best_result = None
-        best_cost = None
-        best_cstr = None
-
-        for x0 in pass_1_results:
-            # TODO: Parallelize
-            result = self.second_pass.constrained_minimize(pass_2_cost, pass_2_cstr, x0)
-            result_cost = pass_2_cost(result)
-            result_cstr = pass_2_cstr(result)
-            if result_cstr > self.threshold:
-                m = (
-                    'Rejected a second pass result because the contraint '
-                    f'value was {result_cstr}'
+        first_pass_result = run_first_pass_minimization(
+                self.first_pass,
+                self.pass_1_cost_gen,
+                self.pass_2_cstr_gen,
+                circuit,
+                target,
+                x0,
+                self.threshold,
                 )
-                _logger.debug(m)
-                continue
+        if first_pass_result is None:
+            return None
+        final_params = first_pass_result
 
-            if best_result is None:
-                best_result = result
-                best_cost = result_cost
-                best_cstr = result_cstr
-            elif result_cost < best_cost:
-                best_result = result
-                best_cost = result_cost
-                best_cstr = result_cstr
-            elif result_cost == best_cost and result_cstr < best_cstr:
-                best_result = result
-                best_cost = result_cost
-                best_cstr = result_cstr
+        second_pass_result = run_second_pass_minimization(
+                self.second_pass,
+                self.pass_2_cost_gen,
+                self.pass_2_cstr_gen,
+                circuit,
+                target,
+                first_pass_result,
+                )
+        if second_pass_result is not None:
+            final_params = second_pass_result[0]
 
-        return best_result
-
+        circuit.set_params(final_params)
+        return circuit
 
 """
     # rough outline of what I want to accomplish:
