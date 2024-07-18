@@ -13,7 +13,7 @@ from tqdm import tqdm
 import numpy as np
 
 import ntro
-from ntro import *
+from ntro.ntro import *
 from ntro import gridsynth
 
 
@@ -66,7 +66,7 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
 # example: qft circuit
-q = 2
+q = 3
 U = qft(2**q)
 U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
 #q = 2
@@ -87,9 +87,9 @@ start = timer()
 with Compiler() as compiler:
     synthesized_circuit = compiler.compile(synthesized_circuit, [
     SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass(full_loops=8),
-    # RzToT_ScanningBruteForcePass(),
-    # gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
+    NumericalTReductionPass(full_loops=10, search_method="greedy", backup=False, profiling_mode=True),
+    #RzToT_ScanningBruteForcePass(),
+    #gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
     ])
 synthesized_circuit.unfold_all()
 print(f"Optimization took {timer() - start}s")
