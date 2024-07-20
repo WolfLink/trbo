@@ -57,7 +57,7 @@ print(f"Synthesis took {timer() - start}s")
 from ntro.tcount import RoundSmallestNCostGenerator, SumCostGenerator
 from bqskit.ir.opt.cost import HilbertSchmidtCostGenerator
 #check_grad(synthesized_circuit, U, SumCostGenerator(RoundSmallestNCostGenerator(12, np.pi * 0.5), HilbertSchmidtCostGenerator()))
-#check_grad(synthesized_circuit, U, RoundSmallestNCostGenerator(len(synthesized_circuit.params) - 1, np.pi * 0.5))
+check_grad(synthesized_circuit, U, RoundSmallestNCostGenerator(len(synthesized_circuit.params) // 2, np.pi * 0.5))
 #exit(0)
 
 start = timer()

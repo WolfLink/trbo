@@ -121,8 +121,9 @@ class RoundSmallestNCost(DifferentiableCostFunction):
         if not isinstance(params, np.ndarray):
             params = np.array(params)
         deviation = get_arr(params, self.period)
+        #deviation = 1 - np.sqrt(0.5*(1+np.cos(deviation)))
+        deviation = 0.5 - 0.5 * np.cos(deviation)
         deviation = np.sort(deviation)
-        deviation = 1 - np.sqrt(0.5*(1+np.cos(deviation)))
 
         cost = np.sum(deviation[:self.N])
         return float(cost)
@@ -134,8 +135,12 @@ class RoundSmallestNCost(DifferentiableCostFunction):
         signs = np.sign(deviation)
 
         deviation = get_arr(params, self.period)
-        value_deviation = np.sort(deviation)
-        target = value_deviation[self.N-1]
+        mask = np.zeros_like(params)
+        #sort_dev = 1 - np.sqrt(0.5*(1+np.cos(deviation)))
+        sort_dev = 0.5 - 0.5 * np.cos(deviation)
+        indices = np.argsort(sort_dev)
+        mask[indices[:self.N]] = 1
 
-        mult = 0.25 * np.sin(deviation) / np.sqrt(0.5*(1+np.cos(deviation)))
-        return -1 * (2 / self.period) * signs * mult * (deviation <= target)
+        #mult = 0.25 * np.sin(deviation) / np.sqrt(0.5*(1+np.cos(deviation)))
+        mult = 0.5 * np.sin(deviation)
+        return -1 * (2 / self.period) * signs * mult * mask

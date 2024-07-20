@@ -125,17 +125,17 @@ class NumericalTReductionPass(BasePass):
 
     async def optimize_for_period_n_sum(self, circuit, target, period):
         trial_circuit = circuit.copy()
-        high = len(circuit.params)
+        high = len(circuit.params) + 1
         low = 0
 
         d_gen = HilbertSchmidtCostGenerator()
         best_params = circuit.params
         best_N = 0
-        while high >= low:
+        while high > low:
             N = (low + high) // 2
             n_gen = RoundSmallestNCostGenerator(N, period)
             sum_gen = SumCostGenerator(d_gen, n_gen)
-            miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16 + 1)
+            miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
             result = await miser.multi_start_instantiate_async(trial_circuit, target, [best_params])
 
             score = sum_gen.gen_cost(result, target)(result.params)
