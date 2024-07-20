@@ -17,8 +17,8 @@ from ntro.ntro import *
 from ntro import gridsynth
 
 
-def check_constraint_grad(circuit, target):
-    cstr = HilbertSchmidtCostGenerator().gen_cost(circuit, target)
+def check_grad(circuit, target, cost_gen):
+    cstr = cost_gen.gen_cost(circuit, target)
     point = np.random.rand(circuit.num_params) * np.pi * 2
 
     total_report = 0
@@ -30,34 +30,7 @@ def check_constraint_grad(circuit, target):
     
     grad_an = cstr.get_grad(point)
     total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
-    print(f"Gradient report returned {total_report} for self-check")
-
-
-    total_report = 0
-    delta = 0.00001
-    threshold = 1e-8
-    grad_num = []
-    for i in range(circuit.num_params):
-        new_point = point + np.array([0] * i + [delta] + [0] * (circuit.num_params - i - 1))
-        grad_num.append((threshold - cstr(new_point) - threshold + cstr(point)) / delta)
-    
-    grad_an = [-y for y in cstr.get_grad(point)]
-    total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
-    print(f"Gradient report returned {total_report} for negate test")
-
-
-    cost = RelaxedTCountCostGenerator().gen_cost(circuit, target)
-    total_report = 0
-    delta = 0.00001
-    threshold = 1e-8
-    grad_num = []
-    for i in range(circuit.num_params):
-        new_point = point + np.array([0] * i + [delta] + [0] * (circuit.num_params - i - 1))
-        grad_num.append((cost(new_point) - cost(point)) / delta)
-    
-    grad_an = cost.get_grad(point)
-    total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
-    print(f"Gradient report returned {total_report} for cost test")
+    print(f"Gradient report returned {total_report}")
 
 
 def qft(n):
@@ -81,13 +54,17 @@ print(synthesized_circuit.get_unitary().get_distance_from(U))
 print(f"Synthesis took {timer() - start}s")
 
 # run gradient test
-#check_constraint_grad(synthesized_circuit, qft(2**q))
+from ntro.tcount import RoundSmallestNCostGenerator, SumCostGenerator
+from bqskit.ir.opt.cost import HilbertSchmidtCostGenerator
+#check_grad(synthesized_circuit, U, SumCostGenerator(RoundSmallestNCostGenerator(12, np.pi * 0.5), HilbertSchmidtCostGenerator()))
+#check_grad(synthesized_circuit, U, RoundSmallestNCostGenerator(len(synthesized_circuit.params) - 1, np.pi * 0.5))
 #exit(0)
+
 start = timer()
 with Compiler() as compiler:
     synthesized_circuit = compiler.compile(synthesized_circuit, [
     SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass(full_loops=10, search_method="greedy", backup=False, profiling_mode=True),
+    NumericalTReductionPass(full_loops=100, search_method="n_sum", backup=False, profiling_mode=True),
     #RzToT_ScanningBruteForcePass(),
     #gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
     ])
@@ -108,3 +85,6 @@ print(f"T-Count: {t_count}\tRz-Count: {rz_count}")
 
 #from datetime import datetime
 #synthesized_circuit.save(f"qasms/T{t_count}Z{rz_count}-{datetime.now().isoformat()}.qasm")
+
+#from notify import notify
+#notify(f"T-Count: {t_count}\tRz-Count: {rz_count}", title="QFT4 Finished Optimization")

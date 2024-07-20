@@ -19,10 +19,15 @@ from ntro.clift import t_gates
 from ntro.clift import rz_gates
 
 from ntro.two_pass_minimization import TwoPassMinimization
+from ntro.multi_start_minimization import MultiStartMinimization
 from ntro.tcount import RelaxedTCountCostGenerator
 from ntro.tcount import get_arr
 from ntro.tcount import RelaxedTCount
+from ntro.tcount import SumCostGenerator
+from ntro.tcount import RoundSmallestNCostGenerator
 from ntro.rz_to_t import RzToTPass, RzToT_ScanningBruteForcePass
+
+from bqskit.ir.opt.minimizers.ceres import CeresMinimizer
 
 import logging
 
@@ -118,6 +123,59 @@ class NumericalTReductionPass(BasePass):
                 trial_circuit = rounded_circuit
         return trial_circuit
 
+    async def optimize_for_period_n_sum(self, circuit, target, period):
+        trial_circuit = circuit.copy()
+        high = len(circuit.params)
+        low = 0
+
+        d_gen = HilbertSchmidtCostGenerator()
+        best_params = circuit.params
+        best_N = 0
+        while high >= low:
+            N = (low + high) // 2
+            n_gen = RoundSmallestNCostGenerator(N, period)
+            sum_gen = SumCostGenerator(d_gen, n_gen)
+            miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16 + 1)
+            result = await miser.multi_start_instantiate_async(trial_circuit, target, [best_params])
+
+            score = sum_gen.gen_cost(result, target)(result.params)
+
+            if score >= self.success_threshold:
+                high = N - 1
+                #print(f"TRYING {low} < {N} < {high} FAILED with score {score}")
+            else:
+                #print(f"TRYING {low} < {N} < {high} PASSED with score {score}")
+                low = N + 1
+                best_params = result.params
+                best_N = N
+        #print(f"Best N: {best_N} score: {SumCostGenerator(d_gen, RoundSmallestNCostGenerator(best_N, period)).gen_cost(circuit, target)(best_params)}")
+        best_circuit = circuit.copy()
+        best_circuit.set_params(best_params)
+        for i in range(best_N):
+            if len(best_circuit.params) < 1:
+                break
+            index = np.argmin(get_arr(trial_circuit.params, period))
+            trial_circuit = best_circuit.copy()
+            for cycle, op in trial_circuit.operations_with_cycles():
+                if len(op.params) != 1:
+                    continue
+                if op.params[0] == trial_circuit.params[index]:
+                    rounded = circuit_for_rounded_val(op.params[0], period < np.pi * 0.5)
+                    trial_circuit.replace_gate(
+                        (cycle, op.location[0]), rounded, op.location
+                    )
+                    break
+            #test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(trial_circuit, target), trial_circuit.params)
+            #if d_gen.gen_cost(trial_circuit, target)(test_params) >= self.success_threshold:
+            #    print(f"Problem with rounding {i}")
+            #    break
+            #else:
+            best_circuit = trial_circuit
+        test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(best_circuit, target), best_circuit.params)
+        best_circuit.set_params(test_params)
+        return best_circuit
+
+
 
     async def optimize_for_period_greedy_search(self, circuit: Circuit, target: UnitaryMatrix, period: float):
         trial_circuit = circuit.copy()
@@ -163,6 +221,8 @@ class NumericalTReductionPass(BasePass):
             method = self.optimize_for_period_greedy_search
         elif self.search_method == "none" or self.search_method is None:
             method = self.optimize_for_period
+        elif self.search_method == "n_sum":
+            method = self.optimize_for_period_n_sum
         else:
             raise ValueError
         for period in self.target_periods:
