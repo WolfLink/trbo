@@ -135,14 +135,14 @@ class NumericalTReductionPass(BasePass):
         d_res = HilbertSchmidtResidualsGenerator()
         best_params = circuit.params
         best_N = 0
-        first_min = LBFGSMinimizer()
+        first_min = CeresMinimizer()
         while high > low:
             N = (low + high) // 2
             n_gen = RoundSmallestNCostGenerator(N, period)
             n_res = RoundSmallestNResidualsGenerator(N, period)
             sum_gen = SumCostGenerator(d_gen, n_gen)
             sum_res = SumResidualsGenerator(d_res, n_res)
-            trial_params = first_min.minimize(sum_gen.gen_cost(trial_circuit, target), best_params)
+            trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), best_params)
             score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
             if score >= self.success_threshold:
                 miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=16, minimizer=CeresMinimizer())

@@ -95,16 +95,28 @@ class SumResidualsGenerator(CostFunctionGenerator):
         circuit: Circuit,
         target: UnitaryMatrix | StateVector,
     ) -> CostFunction:
-        return SumResiduals(self.A.gen_cost(circuit, target), self.B.gen_cost(circuit, target))
+        return SumResiduals(self.A.gen_cost(circuit, target), self.B.gen_cost(circuit, target), circuit.params)
 
 class SumResiduals(DifferentiableResidualsFunction):
-    def __init__(self, A: DifferentiableResidualsFunction, B: DifferentiableResidualsFunction):
+    def __init__(self, A: DifferentiableResidualsFunction, B: DifferentiableResidualsFunction, test_params):
         super().__init__()
         self.A = A
         self.B = B
+        self.test_params = test_params
 
     def get_cost(self, params: RealVector) -> float:
         return np.sum(np.square(self.get_residuals(params)))
+
+    def num_residuals(self):
+        try:
+            numa = self.A.num_residuals()
+        except:
+            numa = len(self.A.get_residuals(self.test_params))
+        try:
+            numb = self.B.num_residuals()
+        except:
+            numb = len(self.B.get_residuals(self.test_params))
+        return numa + numb
 
     def get_residuals(self, params: RealVector) -> RealVector:
         return np.concatenate((self.A.get_residuals(params), self.B.get_residuals(params)), axis=None)
@@ -194,6 +206,9 @@ class RoundSmallestNResiduals(DifferentiableResidualsFunction):
 
     def get_cost(self, params: RealVector) -> float:
         return np.sum(np.square(self.get_residuals(params)))
+
+    def num_residuals(self) -> float:
+        return self.N
 
     def get_residuals(self, params: RealVector) -> float:
         if len(params) < 1 or self.N < 1:

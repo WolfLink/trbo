@@ -68,8 +68,6 @@ def run_minimization(
         if threshold is not None and HilbertSchmidtCostGenerator().gen_cost(circuit, target)(x0) >= threshold:
             return x0
     cost = cost_gen.gen_cost(circuit, target)
-    if isinstance(minimizer, CeresMinimizer):
-        return sp.optimize.least_squares(cost.get_residuals, x0, cost.get_grad, method='lm').x
     return minimizer.minimize(cost, x0)
 
 class MultiStartMinimization(Instantiater):

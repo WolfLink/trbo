@@ -59,7 +59,6 @@ from bqskit.ir.opt.cost import HilbertSchmidtCostGenerator, HilbertSchmidtResidu
 #check_grad(synthesized_circuit, U, SumResidualsGenerator(RoundSmallestNResidualsGenerator(12, np.pi * 0.5), HilbertSchmidtResidualsGenerator()))
 #check_grad(synthesized_circuit, U, HilbertSchmidtCostGenerator())
 #check_grad(synthesized_circuit, U, RoundSmallestNResidualsGenerator(len(synthesized_circuit.params) // 2, np.pi * 0.5))
-#exit(0)
 
 start = timer()
 with Compiler() as compiler:
