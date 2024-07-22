@@ -197,7 +197,7 @@ class RoundSmallestNResiduals(DifferentiableResidualsFunction):
 
     def get_residuals(self, params: RealVector) -> float:
         if len(params) < 1 or self.N < 1:
-            return 0
+            return []
         if not isinstance(params, np.ndarray):
             params = np.array(params)
         deviation = get_arr(params, self.period)
@@ -209,7 +209,7 @@ class RoundSmallestNResiduals(DifferentiableResidualsFunction):
 
     def get_grad(self, params: RealVector) -> npt.NDArray[np.float64]:
         if self.N < 1:
-            return np.zeros_like(params)
+            return np.zeros((self.N, len(params)))
         deviation = np.mod(params, self.period) - self.period / 2
         signs = np.sign(deviation)
 
