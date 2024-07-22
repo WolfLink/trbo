@@ -26,9 +26,9 @@ def check_grad(circuit, target, cost_gen):
     grad_num = []
     for i in range(circuit.num_params):
         new_point = point + np.array([0] * i + [delta] + [0] * (circuit.num_params - i - 1))
-        grad_num.append((cstr(new_point) - cstr(point)) / delta)
+        grad_num.append((np.array(cstr(new_point)) - np.array(cstr(point))) / delta)
     
-    grad_an = cstr.get_grad(point)
+    grad_an = np.transpose(cstr.get_grad(point))
     total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
     print(f"Gradient report returned {total_report}")
 
@@ -54,10 +54,11 @@ print(synthesized_circuit.get_unitary().get_distance_from(U))
 print(f"Synthesis took {timer() - start}s")
 
 # run gradient test
-from ntro.tcount import RoundSmallestNCostGenerator, SumCostGenerator
-from bqskit.ir.opt.cost import HilbertSchmidtCostGenerator
-#check_grad(synthesized_circuit, U, SumCostGenerator(RoundSmallestNCostGenerator(12, np.pi * 0.5), HilbertSchmidtCostGenerator()))
-check_grad(synthesized_circuit, U, RoundSmallestNCostGenerator(len(synthesized_circuit.params) // 2, np.pi * 0.5))
+from ntro.tcount import RoundSmallestNCostGenerator, SumCostGenerator, RoundSmallestNResidualsGenerator, SumResidualsGenerator
+from bqskit.ir.opt.cost import HilbertSchmidtCostGenerator, HilbertSchmidtResidualsGenerator
+#check_grad(synthesized_circuit, U, SumResidualsGenerator(RoundSmallestNResidualsGenerator(12, np.pi * 0.5), HilbertSchmidtResidualsGenerator()))
+#check_grad(synthesized_circuit, U, HilbertSchmidtCostGenerator())
+#check_grad(synthesized_circuit, U, RoundSmallestNResidualsGenerator(len(synthesized_circuit.params) // 2, np.pi * 0.5))
 #exit(0)
 
 start = timer()

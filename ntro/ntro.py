@@ -25,9 +25,12 @@ from ntro.tcount import get_arr
 from ntro.tcount import RelaxedTCount
 from ntro.tcount import SumCostGenerator
 from ntro.tcount import RoundSmallestNCostGenerator
+from ntro.tcount import SumResidualsGenerator
+from ntro.tcount import RoundSmallestNResidualsGenerator
 from ntro.rz_to_t import RzToTPass, RzToT_ScanningBruteForcePass
 
 from bqskit.ir.opt.minimizers.ceres import CeresMinimizer
+from bqskit.ir.opt.minimizers.lbfgs import LBFGSMinimizer
 
 import logging
 
@@ -129,16 +132,24 @@ class NumericalTReductionPass(BasePass):
         low = 0
 
         d_gen = HilbertSchmidtCostGenerator()
+        d_res = HilbertSchmidtResidualsGenerator()
         best_params = circuit.params
         best_N = 0
+        first_min = LBFGSMinimizer()
         while high > low:
             N = (low + high) // 2
             n_gen = RoundSmallestNCostGenerator(N, period)
+            n_res = RoundSmallestNResidualsGenerator(N, period)
             sum_gen = SumCostGenerator(d_gen, n_gen)
-            miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
-            result = await miser.multi_start_instantiate_async(trial_circuit, target, [best_params])
-
-            score = sum_gen.gen_cost(result, target)(result.params)
+            sum_res = SumResidualsGenerator(d_res, n_res)
+            trial_params = first_min.minimize(sum_gen.gen_cost(trial_circuit, target), best_params)
+            score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
+            if score >= self.success_threshold:
+                miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=16, minimizer=CeresMinimizer())
+                #miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
+                result = await miser.multi_start_instantiate_async(trial_circuit, target)
+                trial_params = result.params
+                score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
 
             if score >= self.success_threshold:
                 high = N - 1
@@ -146,7 +157,7 @@ class NumericalTReductionPass(BasePass):
             else:
                 #print(f"TRYING {low} < {N} < {high} PASSED with score {score}")
                 low = N + 1
-                best_params = result.params
+                best_params = trial_params
                 best_N = N
         #print(f"Best N: {best_N} score: {SumCostGenerator(d_gen, RoundSmallestNCostGenerator(best_N, period)).gen_cost(circuit, target)(best_params)}")
         best_circuit = circuit.copy()
@@ -215,8 +226,12 @@ class NumericalTReductionPass(BasePass):
                 break
         return candidate_circuit
 
-    async def optimize_all_periods(self, circuit, target):
-        candidate_circuit = circuit
+    async def optimize_all_periods(self, circuit, target, profile_mode=False):
+        candidate_circuit = circuit.copy()
+        miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=16, minimizer=CeresMinimizer())
+        candidate_circuit = await miser.multi_start_instantiate_async(candidate_circuit, target)
+        if not profile_mode and HilbertSchmidtCostGenerator().gen_cost(candidate_circuit, target)(candidate_circuit.params) >= self.success_threshold:
+            candidate_circuit.set_params(circuit.params)
         if self.search_method == "greedy":
             method = self.optimize_for_period_greedy_search
         elif self.search_method == "none" or self.search_method is None:
@@ -257,6 +272,7 @@ class NumericalTReductionPass(BasePass):
                 self.optimize_all_periods,
                 [best_circuit] * self.full_loops,
                 [utry] * self.full_loops,
+                ["profiling_mode" in self.extra_kwargs and self.extra_kwargs["profiling_mode"]] * self.full_loops,
                 )
         rz_counts = []
         t_counts = []
@@ -293,9 +309,10 @@ class NumericalTReductionPass(BasePass):
                     best_rz_count += 1
                     if t_counts[i] == best_t:
                         best_t_count += 1
-
+            t_counts = np.array(t_counts)
+            rz_counts = np.array(rz_counts)
             print(f"Rz: {np.min(rz_counts)} < {np.mean(rz_counts)} < {np.max(rz_counts)} ({best_rz_count}/{self.full_loops} {100 * best_rz_count / self.full_loops}%)")
-            print(f"T: {np.min(t_counts)} < {np.mean(t_counts)} < {np.max(t_counts)} ({best_t_count}/{self.full_loops} {100 * best_t_count / self.full_loops}%)")
+            print(f"T: {np.min(t_counts[rz_counts == best_rz])} < {np.mean(t_counts[rz_counts == best_rz])} < {np.max(t_counts[rz_counts == best_rz])} ({best_t_count}/{self.full_loops} {100 * best_t_count / self.full_loops}%)")
             print(f"D: {np.min(np.abs(distances))} < {np.mean(np.abs(distances))} < {np.max(np.abs(distances))}")
             print(best_circuit.gate_counts)
         circuit.become(best_circuit)

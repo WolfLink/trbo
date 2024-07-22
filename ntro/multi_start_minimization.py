@@ -9,6 +9,7 @@ import numpy as np
 from bqskit.ir.circuit import Circuit
 from bqskit.ir.opt import HilbertSchmidtResidualsGenerator
 from bqskit.ir.opt import HilbertSchmidtCostGenerator
+from bqskit.ir.opt.cost.residual import ResidualsFunction
 from bqskit.ir.opt.cost.generator import CostFunctionGenerator as CostGen
 from bqskit.ir.opt.instantiater import Instantiater
 from bqskit.ir.opt.minimizer import Minimizer
@@ -21,6 +22,9 @@ from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
 from bqskit.qis.unitary import RealVector
 from bqskit.runtime import get_runtime
 
+
+import scipy as sp
+import scipy.optimize
 
 import logging
 
@@ -55,8 +59,17 @@ def run_minimization(
         cost_gen: CostGen,
         target: UnitaryMatrix | StateVector | StateSystem,
         x0: RealVector,
+        two_pass: bool = True,
+        threshold: float | NoneType = None,
         ):
+    if two_pass:
+        cost = HilbertSchmidtResidualsGenerator().gen_cost(circuit, target)
+        x0 = CeresMinimizer().minimize(cost, x0)
+        if threshold is not None and HilbertSchmidtCostGenerator().gen_cost(circuit, target)(x0) >= threshold:
+            return x0
     cost = cost_gen.gen_cost(circuit, target)
+    if isinstance(minimizer, CeresMinimizer):
+        return sp.optimize.least_squares(cost.get_residuals, x0, cost.get_grad, method='lm').x
     return minimizer.minimize(cost, x0)
 
 class MultiStartMinimization(Instantiater):
@@ -120,7 +133,7 @@ class MultiStartMinimization(Instantiater):
         elif len(starts) < num_starts:
             starts.extend(RandomStartGenerator().gen_starting_points(num_starts - len(starts), circuit, target))
         num_starts = len(starts)
-
+        num_two_pass = num_starts // 2
         result_future = get_runtime().map(
                 run_minimization,
                 [circuit] * num_starts,
@@ -128,6 +141,8 @@ class MultiStartMinimization(Instantiater):
                 [self.cost_gen] * num_starts,
                 [target] * num_starts,
                 starts,
+                [True] * (num_two_pass) + [False] * (num_starts - num_two_pass),
+                [self.threshold] * (num_two_pass) + [None] * (num_starts - num_two_pass),
                 )
 
         cost = self.cost_gen.gen_cost(circuit, target)
@@ -135,6 +150,8 @@ class MultiStartMinimization(Instantiater):
         best_cost = None
         async for index, result in FutureQueue(result_future, num_starts):
             distance = cost(result)
+            if isinstance(cost, ResidualsFunction):
+                distance = np.sum(np.square(distance))
             if best_cost is None or distance < best_cost:
                 best_cost = distance
                 best_result = result
