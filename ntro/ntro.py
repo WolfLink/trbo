@@ -145,7 +145,7 @@ class NumericalTReductionPass(BasePass):
             trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), best_params)
             score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
             if score >= self.success_threshold:
-                miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=16, minimizer=CeresMinimizer())
+                miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=128, minimizer=CeresMinimizer())
                 #miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
                 result = await miser.multi_start_instantiate_async(trial_circuit, target)
                 trial_params = result.params
@@ -228,7 +228,7 @@ class NumericalTReductionPass(BasePass):
 
     async def optimize_all_periods(self, circuit, target, profile_mode=False):
         candidate_circuit = circuit.copy()
-        miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=16, minimizer=CeresMinimizer())
+        miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=32, minimizer=CeresMinimizer())
         candidate_circuit = await miser.multi_start_instantiate_async(candidate_circuit, target)
         if not profile_mode and HilbertSchmidtCostGenerator().gen_cost(candidate_circuit, target)(candidate_circuit.params) >= self.success_threshold:
             candidate_circuit.set_params(circuit.params)
@@ -298,6 +298,10 @@ class NumericalTReductionPass(BasePass):
                     elif curr_t == best_t:
                         if candidate_circuit.get_unitary().get_distance_from(utry, degree=1) < best_circuit.get_unitary().get_distance_from(utry, degree=1):
                             best_circuit = candidate_circuit
+        if "distance_list" not in data:
+            data["distance_list"] = [best_circuit.get_unitary().get_distance_from(utry, degree=1)]
+        else:
+            data["distance_list"].append(best_circuit.get_unitary().get_distance_from(utry, degree=1))
 
         if "profiling_mode" in self.extra_kwargs and self.extra_kwargs["profiling_mode"]:
             best_rz = sum(best_circuit.count(gate) for gate in rz_gates)
