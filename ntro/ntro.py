@@ -226,12 +226,9 @@ class NumericalTReductionPass(BasePass):
                 break
         return candidate_circuit
 
-    async def optimize_all_periods(self, circuit, target, profile_mode=False):
+    async def optimize_all_periods(self, circuit, target, x0):
         candidate_circuit = circuit.copy()
-        miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=32, minimizer=CeresMinimizer())
-        candidate_circuit = await miser.multi_start_instantiate_async(candidate_circuit, target)
-        if not profile_mode and HilbertSchmidtCostGenerator().gen_cost(candidate_circuit, target)(candidate_circuit.params) >= self.success_threshold:
-            candidate_circuit.set_params(circuit.params)
+        candidate_circuit.set_params(x0)
         if self.search_method == "greedy":
             method = self.optimize_for_period_greedy_search
         elif self.search_method == "none" or self.search_method is None:
@@ -267,12 +264,22 @@ class NumericalTReductionPass(BasePass):
         best_circuit.unfold_all()
         candidate_circuit = best_circuit
 
+        param_list = [circuit.params]
+        if self.full_loops > 1:
+            miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=32, minimizer=CeresMinimizer())
+            seed_circuits = await get_runtime().map(
+                    miser.multi_start_instantiate_async,
+                    [candidate_circuit] * (self.full_loops - 1),
+                    [utry] * (self.full_loops - 1),
+                    )
+            param_list.extend([seed_circuit.params for seed_circuit in seed_circuits])
+             
 
         candidate_circuits = await get_runtime().map(
                 self.optimize_all_periods,
                 [best_circuit] * self.full_loops,
                 [utry] * self.full_loops,
-                ["profiling_mode" in self.extra_kwargs and self.extra_kwargs["profiling_mode"]] * self.full_loops,
+                param_list,
                 )
         rz_counts = []
         t_counts = []
