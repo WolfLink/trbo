@@ -1,0 +1,3 @@
+[submodule "comparisons/quipper_circuits/optimizer"]
+	path = comparisons/quipper_circuits/optimizer
+	url = git@github.com:njross/optimizer.git
