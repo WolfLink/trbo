@@ -195,14 +195,15 @@ class RoundSmallestNResidualsGenerator(CostFunctionGenerator):
         circuit: Circuit,
         target: UnitaryMatrix | StateVector,
     ) -> CostFunction:
-        return RoundSmallestNResiduals(self.N, self.period)
+        return RoundSmallestNResiduals(self.N, self.period, circuit.dim)
 # TODO probably need an argsort or something for the grad etc.
 
 class RoundSmallestNResiduals(DifferentiableResidualsFunction):
-    def __init__(self, N: int, period: float) -> None:
+    def __init__(self, N: int, period: float, dim: int) -> None:
         super().__init__()
         self.period = period
         self.N = N
+        self.dim = dim
 
     def get_cost(self, params: RealVector) -> float:
         return np.sum(np.square(self.get_residuals(params)))
@@ -220,7 +221,7 @@ class RoundSmallestNResiduals(DifferentiableResidualsFunction):
         deviation = 0.5 - 0.5 * np.cos(deviation)
         deviation = np.sort(deviation)
         #return np.sqrt(deviation[:self.N])
-        return deviation[:self.N]
+        return self.dim * deviation[:self.N]
 
     def get_grad(self, params: RealVector) -> npt.NDArray[np.float64]:
         if self.N < 1:
@@ -238,4 +239,4 @@ class RoundSmallestNResiduals(DifferentiableResidualsFunction):
             j = indices[i]
             output[i][j] = -1 * (2 / self.period) * signs[j] * 0.5 * np.sin(deviation[j])
             #output[i][j] = -1 * (2 / self.period) * signs[j] * 0.25 * np.sin(deviation[j]) / np.sqrt(0.5 - 0.5 * np.cos(deviation[j]))
-        return output
+        return self.dim * output

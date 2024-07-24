@@ -152,7 +152,7 @@ class NumericalTReductionPass(BasePass):
                 result = await miser.multi_start_instantiate_async(trial_circuit, target)
                 trial_params = result.params
                 score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
-            if score >= self.success_threshold:
+            if score >= self.success_threshold and False:
                 two_pass = TwoPassMinimization(
                         pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
                         success_threshold=self.success_threshold,
@@ -164,8 +164,9 @@ class NumericalTReductionPass(BasePass):
                     trial_circuit,
                     target=target,
                 )
-                trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), result.params)
-                score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
+                if result is not None:
+                    trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), result.params)
+                    score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
 
             if score >= self.success_threshold:
                 high = N - 1
