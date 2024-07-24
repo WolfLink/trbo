@@ -43,6 +43,7 @@ class NumericalTReductionPass(BasePass):
         success_threshold: float = 1e-8,
         full_loops: int = 8,
         search_method: str = "greedy",
+        multistarts: int = (128, 16),
         backup: bool = False,
         **kwargs,
     ) -> None:
@@ -66,12 +67,13 @@ class NumericalTReductionPass(BasePass):
 
         self.acceptable_gates = clifford_gates + t_gates + rz_gates
         self.target_periods = [0.5 * np.pi, 0.25 * np.pi]
+        self.multistarts = multistarts
 
     async def attempt_gate_rounding(self, circuit: Circuit, target: UnitaryMatrix, period: float, index: int | NoneType = None):
         two_pass = TwoPassMinimization(
                 pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
                 success_threshold=self.success_threshold,
-                num_starts=(128,16),
+                num_starts=self.multistarts,
                 **self.extra_kwargs,
                 )
         trial_circuit = circuit.copy()
@@ -101,7 +103,7 @@ class NumericalTReductionPass(BasePass):
         two_pass = TwoPassMinimization(
                 pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
                 success_threshold=self.success_threshold,
-                num_starts=(128,16),
+                num_starts=self.multistarts,
                 **self.extra_kwargs,
                 )
         initial_result: Circuit | None = await get_runtime().submit(
@@ -145,10 +147,24 @@ class NumericalTReductionPass(BasePass):
             trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), best_params)
             score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
             if score >= self.success_threshold:
-                miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=128, minimizer=CeresMinimizer())
+                miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=self.multistarts[0], minimizer=CeresMinimizer())
                 #miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
                 result = await miser.multi_start_instantiate_async(trial_circuit, target)
                 trial_params = result.params
+                score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
+            if score >= self.success_threshold:
+                two_pass = TwoPassMinimization(
+                        pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
+                        success_threshold=self.success_threshold,
+                        num_starts=self.multistarts,
+                        **self.extra_kwargs,
+                        )
+                result = await get_runtime().submit(
+                    two_pass.multi_start_instantiate_async,
+                    trial_circuit,
+                    target=target,
+                )
+                trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), result.params)
                 score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
 
             if score >= self.success_threshold:
@@ -193,7 +209,7 @@ class NumericalTReductionPass(BasePass):
         two_pass = TwoPassMinimization(
                 pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
                 success_threshold=self.success_threshold,
-                num_starts=(128,16),
+                num_starts=self.multistarts,
                 **self.extra_kwargs,
                 )
         initial_result: Circuit | None = await get_runtime().submit(
@@ -266,7 +282,7 @@ class NumericalTReductionPass(BasePass):
 
         param_list = [circuit.params]
         if self.full_loops > 1:
-            miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=32, minimizer=CeresMinimizer())
+            miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=self.multistarts[1], minimizer=CeresMinimizer())
             seed_circuits = await get_runtime().map(
                     miser.multi_start_instantiate_async,
                     [candidate_circuit] * (self.full_loops - 1),

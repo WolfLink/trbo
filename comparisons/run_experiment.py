@@ -5,9 +5,10 @@ from timeit import default_timer as timer
 import numpy as np
 
 from bqskit.compiler import CompilationTask, Compiler
-from bqskit.passes import ForEachBlockPass, QuickPartitioner
+from bqskit.passes import ForEachBlockPass, QuickPartitioner, LEAPSynthesisPass, ZXZXZDecomposition, GroupSingleQuditGatePass, UnfoldPass
 
 from ntro import NumericalTReductionPass
+from ntro.clift import clifford_gates, t_gates, rz_gates
 
 from parse_quipper import parse_quipper_file
 
@@ -45,6 +46,7 @@ def run_experiment(source_file, pass_lists):
                 result_circuit, pass_data = compiler.compile(og_circuit, pass_list, request_data=True)
         except:
             pass_dict["error"] = traceback.format_exc()
+            results.append(pass_dict)
             continue
         opt_circuit = result_circuit
         stop = timer()
@@ -67,19 +69,42 @@ def run_experiment(source_file, pass_lists):
 
     return data_dict
 
+def pprint_ddict(ddict, title=None):
+    print("="*10)
+    if title is not None:
+        print(title)
+    if "error" in ddict:
+        print(ddict["error"])
+        print("="*10)
+        return
+    og_rz = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate in rz_gates])
+    og_t = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate in t_gates])
+    og_cliff = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate in clifford_gates])
+    og_other = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate not in rz_gates + clifford_gates + t_gates + rz_gates])
+    print(f"Start:\tRz: {og_rz}\tT: {og_t}\tCliff: {og_cliff}\tOther: {og_other}")
+    for i, pdict in enumerate(ddict["results"]):
+        if "error" in pdict:
+            print(pdict["error"])
+            continue
+        pass_rz = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate in rz_gates])
+        pass_t = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate in t_gates])
+        pass_cliff = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate in clifford_gates])
+        pass_other = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate not in rz_gates + clifford_gates + t_gates + rz_gates])
+        print(f"Pass {i}:\tRz: {pass_rz}\tT: {pass_t}\tCliff: {pass_cliff}\tOther: {pass_other} ({pdict['time']}s)")
+    print("="*10)
+
+
 
 if __name__ == "__main__":
     ntro_passes = [
-            QuickPartitioner(4),
+            QuickPartitioner(5),
             ForEachBlockPass([
                 NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=True, profiling_mode=False),
                 ]),
             ]
     
-    before = run_experiment("quipper_circuits/optimizer/TEST/QFT8_before", [ntro_passes])
-    after = run_experiment("quipper_circuits/optimizer/TEST/QFT8_after", [ntro_passes])
+    before = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFT256_before", [ntro_passes])
+    pprint_ddict(before, "Before")
 
-    print(f"Before:\t{before['og_gates']}")
-    print(f"Opt:\t{before['results'][0]['gates']}")
-    print(f"After:\t{after['og_gates']}")
-    print(f"DoubleOpt:\t{after['results'][0]['gates']}")
+    after = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFT256_after", [ntro_passes])
+    pprint_ddict(after, "After")
