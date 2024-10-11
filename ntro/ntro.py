@@ -69,10 +69,12 @@ class NumericalTReductionPass(BasePass):
         self.target_periods = [0.5 * np.pi, 0.25 * np.pi]
         self.multistarts = multistarts
 
-    async def attempt_gate_rounding(self, circuit: Circuit, target: UnitaryMatrix, period: float, index: int | NoneType = None):
+    async def attempt_gate_rounding(self, circuit: Circuit, target: UnitaryMatrix, period: float, index: int | NoneType = None, threshold=None):
+        if threshold is None:
+            threshold = self.threshold
         two_pass = TwoPassMinimization(
                 pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
-                success_threshold=self.success_threshold,
+                success_threshold=threshold,
                 num_starts=self.multistarts,
                 **self.extra_kwargs,
                 )
@@ -98,11 +100,13 @@ class NumericalTReductionPass(BasePass):
 
         return result
 
-    async def optimize_for_period(self, circuit: Circuit, target: UnitaryMatrix, period: float):
+    async def optimize_for_period(self, circuit: Circuit, target: UnitaryMatrix, period: float, threshold: None):
         trial_circuit = circuit.copy()
+        if threshold is None:
+            threshold = self.success_threshold
         two_pass = TwoPassMinimization(
                 pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
-                success_threshold=self.success_threshold,
+                success_threshold=threshold,
                 num_starts=self.multistarts,
                 **self.extra_kwargs,
                 )
@@ -121,6 +125,7 @@ class NumericalTReductionPass(BasePass):
                     trial_circuit,
                     target,
                     period,
+                    threshold=threshold,
                     )
             if rounded_circuit is None:
                 break
@@ -128,8 +133,10 @@ class NumericalTReductionPass(BasePass):
                 trial_circuit = rounded_circuit
         return trial_circuit
 
-    async def optimize_for_period_n_sum(self, circuit, target, period):
+    async def optimize_for_period_n_sum(self, circuit, target, period, threshold=None):
         trial_circuit = circuit.copy()
+        if threshold is None:
+            threshold = self.success_threshold
         high = len(circuit.params) + 1
         low = 0
 
@@ -146,16 +153,16 @@ class NumericalTReductionPass(BasePass):
             sum_res = SumResidualsGenerator(d_res, n_res)
             trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), best_params)
             score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
-            if score >= self.success_threshold:
+            if score >= threshold:
                 miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=self.multistarts[0], minimizer=CeresMinimizer())
                 #miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
                 result = await miser.multi_start_instantiate_async(trial_circuit, target)
                 trial_params = result.params
                 score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
-            if score >= self.success_threshold and False:
+            if score >= threshold and False:
                 two_pass = TwoPassMinimization(
                         pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
-                        success_threshold=self.success_threshold,
+                        success_threshold=threshold,
                         num_starts=self.multistarts,
                         **self.extra_kwargs,
                         )
@@ -168,7 +175,7 @@ class NumericalTReductionPass(BasePass):
                     trial_params = first_min.minimize(sum_res.gen_cost(trial_circuit, target), result.params)
                     score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
 
-            if score >= self.success_threshold:
+            if score >= threshold:
                 high = N - 1
                 #print(f"TRYING {low} < {N} < {high} FAILED with score {score}")
             else:
@@ -205,11 +212,13 @@ class NumericalTReductionPass(BasePass):
 
 
 
-    async def optimize_for_period_greedy_search(self, circuit: Circuit, target: UnitaryMatrix, period: float):
+    async def optimize_for_period_greedy_search(self, circuit: Circuit, target: UnitaryMatrix, period: float, threshold=None):
         trial_circuit = circuit.copy()
+        if threshold is None:
+            threshold = self.success_threshold
         two_pass = TwoPassMinimization(
                 pass_w_cost_gen=RelaxedTCountCostGenerator(period=period),
-                success_threshold=self.success_threshold,
+                success_threshold=threshold,
                 num_starts=self.multistarts,
                 **self.extra_kwargs,
                 )
@@ -232,6 +241,7 @@ class NumericalTReductionPass(BasePass):
                     [target] * len(trial_circuit.params),
                     [period] * len(trial_circuit.params),
                     list(range(len(trial_circuit.params))),
+                    [threshold] * len(trial_circuit.params),
                     )
             for rounded_circuit in rounded_circuits:
                 if candidate_circuit is None:
@@ -276,14 +286,24 @@ class NumericalTReductionPass(BasePass):
             )
             raise ValueError(m)
 
-        utry = circuit.get_unitary()
+        if "utry" not in data:
+            utry = circuit.get_unitary()
+            data["utry"] = utry
+        else:
+            utry = data["utry"]
+
+        if "adjusted_threshold" in data:
+            threshold = data["adjusted_threshold"]
+        else:
+            threshold = self.success_threshold
+
         best_circuit = circuit
         best_circuit.unfold_all()
         candidate_circuit = best_circuit
 
         param_list = [circuit.params]
         if self.full_loops > 1:
-            miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), self.success_threshold, multistarts=self.multistarts[1], minimizer=CeresMinimizer())
+            miser = MultiStartMinimization(HilbertSchmidtResidualsGenerator(), threshold, multistarts=self.multistarts[1], minimizer=CeresMinimizer())
             seed_circuits = await get_runtime().map(
                     miser.multi_start_instantiate_async,
                     [candidate_circuit] * (self.full_loops - 1),
@@ -310,7 +330,7 @@ class NumericalTReductionPass(BasePass):
             distances.append(curr_d)
             if "profiling_mode" in self.extra_kwargs and self.extra_kwargs["profiling_mode"]:
                 print(f"Rz: {curr_rz}\tT: {curr_t}\tD: {curr_d}")
-            if candidate_circuit.get_unitary().get_distance_from(utry, degree=1) < self.success_threshold:
+            if candidate_circuit.get_unitary().get_distance_from(utry, degree=1) < threshold:
                 best_rz = sum(best_circuit.count(gate) for gate in rz_gates)
                 best_t = sum(best_circuit.count(gate) for gate in t_gates)
                 
