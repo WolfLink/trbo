@@ -21,8 +21,6 @@ from bqskit.ir.gates.constant.s import SGate
 from bqskit.ir.gates.constant.t import TGate
 from bqskit.ir.gates.constant.h import HGate
 import logging
-import json
-import filelock
 
 from .clift import clifford_gates, t_gates, rz_gates
 
@@ -37,29 +35,6 @@ def get_gridsynth_binary():
         return environ["gridsynth"]
     except:
         return None
-
-
-def check_cache(key ,value):
-    key = f"{key}"
-    value = f"{value}"
-    d = dict()
-    lock = filelock.FileLock("test.json.lock")
-    with lock:
-        try:
-            with open("test.json", "r") as f:
-                d = json.load(f)
-        except:
-            pass
-        if key in d and d[key] != value:
-            print(f"CACHE COLLISION: {key} : {value} | {d[key]}")
-        elif key in d and d[key] == value:
-            print(f"CACHE HIT {key} : {value}")
-        else:
-            print(f"CACHE MISS {key} : {value}")
-        d[key] = value
-        with open("test.json", "w") as f:
-            json.dump(d, f)
-
 
 def gridsynth(angle, e=1e-10, pi=False, gridsynth_binary=None):
     angle = angle % 2 if pi else angle % (2 * np.pi)
@@ -80,7 +55,6 @@ def gridsynth(angle, e=1e-10, pi=False, gridsynth_binary=None):
     for c in resultstr:
         if c in str_to_gate:
             circuit.append_gate(str_to_gate[c], 0)
-    #check_cache((angle, e), resultstr)
     return CircuitGate(circuit)
 
 class GridsynthSweeper:
@@ -107,10 +81,11 @@ class GridsynthSweeper:
         return trial_circuit, distance
 
 class GridsynthPass(BasePass):
-    def __init__(self, threshold=1e-6, utry=None, gridsynth_binary=None):
+    def __init__(self, threshold=1e-6, utry=None, gridsynth_binary=None, retries=1):
         self.threshold = threshold
         self.utry = utry
         self.gridsynth_binary = gridsynth_binary
+        self.retries = retries
        
     async def run(self, circuit, data={}):
         if circuit.num_params < 1:
@@ -128,17 +103,15 @@ class GridsynthPass(BasePass):
         else:
             threshold = self.threshold
         log_params = circuit.params
-        #check_cache(f'{data["subnumbering"]}', f"{circuit.params}")
-        #print([key for key in data])
         # as a first step, lets see if we can tune the parameters any better (that will give us more room for gridsynth error)
 
         cost_func = HilbertSchmidtResidualsGenerator().gen_cost(circuit, target)
         compare_func = HilbertSchmidtCostGenerator().gen_cost(circuit, target)
         _logger.info(f"Initial Cost: {compare_func(circuit.params)}")
-        #result = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(cost_func, circuit.params)
+        result = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(cost_func, circuit.params)
         result = circuit.params
         _logger.info(f"Optimized Cost: {compare_func(result)}")
-        #circuit.set_params(result)
+        circuit.set_params(result)
 
         trial_e = np.sqrt(threshold-compare_func(result)) / circuit.num_params
         best_circuit = circuit.copy()
@@ -170,6 +143,12 @@ class GridsynthPass(BasePass):
         while max_d - min_d > delta and max_e - min_e > threshold and iterations < max_iter:
             e = (min_e + max_e) / 2
             c, d = gridsynth.resynthesize(circuit, e)
+            r = self.retries
+            while d >= threshold and r > 0:
+                r -= 1
+                c, d = gridsynth.resynthesize(circuit, e)
+                _logger.info(f"RETRIED: {r}")
+                print(f"RETRIED: {r}")
             iterations += 1
             if d < threshold:
                 best_circuit = c
