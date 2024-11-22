@@ -9,7 +9,8 @@ from bqskit.passes import ForEachBlockPass, QuickPartitioner, LEAPSynthesisPass,
 
 from ntro import NumericalTReductionPass
 from ntro.gridsynth import GridsynthPass
-from ntro.utils import ComputeErrorThresholdPass, LogIntermediateGateCountsPass, UnwrapForEachPassDown
+#from ntro.utils import ComputeErrorThresholdPass, LogIntermediateGateCountsPass, UnwrapForEachPassDown
+from ntro.utils import *
 from ntro.clift import clifford_gates, t_gates, rz_gates
 
 from parse_quipper import parse_quipper_file
@@ -49,6 +50,7 @@ def run_experiment(source_file, prefix_passes, pass_lists):
         pass_dict = dict()
         start = timer()
         intermediate_gate_counts = None
+        gridsynth_stats = None
         try:
             with Compiler() as compiler:
                 result_circuit, pass_data = compiler.compile(og_circuit, pass_list, request_data=True)
@@ -66,6 +68,17 @@ def run_experiment(source_file, prefix_passes, pass_lists):
                                             intermediate_gate_counts[key] += item_item["intermediate_gate_counts"][key]
                                         else:
                                             intermediate_gate_counts[key] = item_item["intermediate_gate_counts"][key]
+                            if "gridsynth_stats" in item_item:
+                                if gridsynth_stats is None:
+                                    gridsynth_stats = {"rz" : [], "t" : [], "e" : [], "d" : [], "thresh" : []}
+                                stats = item_item["gridsynth_stats"]
+                                gridsynth_stats["rz"].append(stats["rz"])
+                                gridsynth_stats["t"].append(stats["t"])
+                                gridsynth_stats["e"].append(stats["e"])
+                                gridsynth_stats["d"].append(stats["d"])
+                                gridsynth_stats["thresh"].append(stats["thresh"])
+
+
         except:
             pass_dict["error"] = traceback.format_exc()
             results.append(pass_dict)
@@ -77,6 +90,8 @@ def run_experiment(source_file, prefix_passes, pass_lists):
         pass_dict = {"gates" : result_circuit.gate_counts, "qasm" : result_circuit.to("qasm"), "time" : stop - start}
         if intermediate_gate_counts is not None:
             pass_dict["intermediate_gate_counts"] = intermediate_gate_counts
+        if gridsynth_stats is not None:
+            pass_dict["gridsynth_stats"] = gridsynth_stats
         if opt_circuit.dim > 0 and opt_circuit.dim <= 1024:
             try:
                 pass_dict["distance"] = opt_circuit.get_unitary().get_distance_from(og_circuit.get_unitary())
@@ -106,7 +121,7 @@ def gate_count_str(name, pdict):
     if "time" in pdict:
         printstr += f"({pdict['time']}s)"
     if "distance" in pdict:
-        printstr += f"\tDist: {pdict['distance']}"
+        printstr += f"\tDist: {pdict['distance']} ({pdict['distance_type']})"
     return printstr
 
 def pprint_ddict(ddict, title=None, pass_titles = None):
@@ -132,40 +147,57 @@ def pprint_ddict(ddict, title=None, pass_titles = None):
             name = f"Pass {i}"
         if "intermediate_gate_counts" in pdict:
             print(gate_count_str(name+"-I", {"gates" : pdict["intermediate_gate_counts"]}))
+        if "gridsynth_stats" in pdict and False:
+            rz = np.array(pdict["gridsynth_stats"]["rz"])
+            t = np.array(pdict["gridsynth_stats"]["t"])
+            d = np.array(pdict["gridsynth_stats"]["d"])
+            e = np.array(pdict["gridsynth_stats"]["e"])
+            thresh = np.array(pdict["gridsynth_stats"]["thresh"])
+            print(f"{name}-gridsynth Rz: {np.min(rz)}<{np.mean(rz):.3}<{np.max(rz)} ({np.sum(rz)})\tT: {np.min(t)}<{np.mean(t):.3}<{np.max(t)} ({np.sum(t)})\td: {np.min(d):.3}<{np.mean(d):.3}<{np.max(d):.3}\tthresh: {np.min(thresh):.3}<{np.mean(thresh):.3}<{np.max(thresh):.3}\te: {np.min(e):.3}<{np.mean(e):.3}<{np.max(e):.3}")
         print(gate_count_str(name, pdict))
 
     print("="*10)
 
 
 
-if __name__ == "__main__":
-    threshold = 1e-12
+#if __name__ == "__main__":
+#for threshold in [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]:
+for threshold in [1e-5]:
+    #threshold = 1e-12
+    print(f"THRESHOLD: {threshold}")
     prefix_passes = [
             QuickPartitioner(4),
             ]
     ntro_passes = [
-            ComputeErrorThresholdPass(target_threshold=1e-10),
+            ComputeErrorThresholdPass(target_threshold=threshold),
             ForEachBlockPass([
                 UnwrapForEachPassDown(),
-                #NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=threshold),
-                #LogIntermediateGateCountsPass(),
+                NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=threshold),
+                LogIntermediateGateCountsPass(),
                 GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
                 ], calculate_error_bound=True),
+            #LogErrorPass("after_ntro"),
             ]
     gridsynth_passes = [
-            ComputeErrorThresholdPass(target_threshold=1e-10),
+            ComputeErrorThresholdPass(target_threshold=threshold),
             ForEachBlockPass([
                 UnwrapForEachPassDown(),
                 GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
                 ], calculate_error_bound=True),
+            #LogErrorPass("after_gridsynth"),
             ]
    
     #passes = [ntro_passes, gridsynth_passes]
-    passes = [gridsynth_passes, gridsynth_passes]
-    names = ["no opt", "NTRO"]
-    #before = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFT8_before", [gridsynth_passes, ntro_passes])
+    passes = [gridsynth_passes, ntro_passes]
+    names = ["gridsynth", "ntro"]
+    #passes = [gridsynth_passes]
+    #names = ["gridsynth"]
+    #before = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFT256_before", prefix_passes, passes)
     #pprint_ddict(before, "Before", names)
 
-    after = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFT8_after", prefix_passes, [gridsynth_passes, ntro_passes])
+    after = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFTAdd256_after", prefix_passes, passes)
     pprint_ddict(after, "After", names)
-    print(f"Threshold: {threshold} or {np.sqrt(threshold)}")
+    #print(f"Threshold: {threshold} or {np.sqrt(threshold)}")
+
+from notify import notify
+#notify("Completed the big compilation experiment!")
