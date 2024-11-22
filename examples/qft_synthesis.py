@@ -39,7 +39,7 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
 # example: qft circuit
-q = 3
+q = 2
 U = qft(2**q)
 U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
 #q = 2
@@ -64,7 +64,7 @@ start = timer()
 with Compiler() as compiler:
     synthesized_circuit = compiler.compile(synthesized_circuit, [
     SetModelPass(MachineModel(q, gate_set=gateset)),
-    NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=True),
+    NumericalTReductionPass(full_loops=1, search_method="greedy", backup=False, profiling_mode=True),
     #RzToT_ScanningBruteForcePass(),
     #gridsynth.GridsynthPass(gridsynth_binary="./gridsynth"),
     ])
