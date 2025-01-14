@@ -15,7 +15,9 @@ from ntro.clift import clifford_gates, t_gates, rz_gates
 
 from parse_quipper import parse_quipper_file
 
-def run_experiment(source_file, prefix_passes, pass_lists):
+from data_collecting import log_ddict_to_tsv
+
+def run_experiment(source_file, prefix_passes, pass_lists, threshold=None):
     source_file = os.path.normpath(source_file)
     filename = os.path.basename(source_file)
     name, ext = os.path.splitext(filename)
@@ -106,6 +108,9 @@ def run_experiment(source_file, prefix_passes, pass_lists):
             pass_dict["distance"] = pass_data["error"]
             pass_dict["distance_type"] = "upper_bound"
 
+        if threshold is not None:
+            pass_dict["threshold"] = threshold
+
         results.append(pass_dict)
     data_dict["results"] = results
 
@@ -158,46 +163,62 @@ def pprint_ddict(ddict, title=None, pass_titles = None):
 
     print("="*10)
 
+            
+
+
+def qasm_from_ddict(ddict, pass_titles, base_path=None):
+    if base_path is None:
+        base_path = "./"
+
+    for i, pdict in enumerate(ddict["results"]):
+        path = os.path.join(base_path, f"{pass_titles[i]}.qasm")
+        print(f"writing to {path}")
+        with open(path, "w+") as f:
+            f.write(pdict["qasm"])
 
 
 #if __name__ == "__main__":
 #for threshold in [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]:
-for threshold in [1e-5]:
-    #threshold = 1e-12
-    print(f"THRESHOLD: {threshold}")
-    prefix_passes = [
-            QuickPartitioner(4),
-            ]
-    ntro_passes = [
-            ComputeErrorThresholdPass(target_threshold=threshold),
-            ForEachBlockPass([
-                UnwrapForEachPassDown(),
-                NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=threshold),
-                LogIntermediateGateCountsPass(),
-                GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
-                ], calculate_error_bound=True),
-            #LogErrorPass("after_ntro"),
-            ]
-    gridsynth_passes = [
-            ComputeErrorThresholdPass(target_threshold=threshold),
-            ForEachBlockPass([
-                UnwrapForEachPassDown(),
-                GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
-                ], calculate_error_bound=True),
-            #LogErrorPass("after_gridsynth"),
-            ]
-   
-    #passes = [ntro_passes, gridsynth_passes]
-    passes = [gridsynth_passes, ntro_passes]
-    names = ["gridsynth", "ntro"]
-    #passes = [gridsynth_passes]
-    #names = ["gridsynth"]
-    #before = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFT256_before", prefix_passes, passes)
-    #pprint_ddict(before, "Before", names)
+def run_benchmarks(files=["QFTAdd8_before", "QFTAdd8_after"], thresholds=[1e-3,1e-5,1e-10], path=None):
+    for file in files:
+        for threshold in thresholds:
+            prefix_passes = [
+                    QuickPartitioner(4),
+                    ]
+            ntro_passes = [
+                    ComputeErrorThresholdPass(target_threshold=threshold),
+                    ForEachBlockPass([
+                        UnwrapForEachPassDown(),
+                        NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=threshold),
+                        LogIntermediateGateCountsPass(),
+                        GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
+                        ], calculate_error_bound=True),
+                    #LogErrorPass("after_ntro"),
+                    ]
+            gridsynth_passes = [
+                    ComputeErrorThresholdPass(target_threshold=threshold),
+                    ForEachBlockPass([
+                        UnwrapForEachPassDown(),
+                        GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
+                        ], calculate_error_bound=True),
+                    #LogErrorPass("after_gridsynth"),
+                    ]
+           
+            #passes = [ntro_passes, gridsynth_passes]
+            passes = [gridsynth_passes, ntro_passes]
+            names = ["gridsynth", "ntro"]
+            #passes = [gridsynth_passes]
+            #names = ["gridsynth"]
+            before = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFTAdd8_before", prefix_passes, passes, threshold)
+            pprint_ddict(before, "Before", names)
+            log_ddict_to_tsv("QFTAdd8_before", before, names, path=None)
 
-    after = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFTAdd256_after", prefix_passes, passes)
-    pprint_ddict(after, "After", names)
-    #print(f"Threshold: {threshold} or {np.sqrt(threshold)}")
+            after = run_experiment("quipper_circuits/optimizer/QFT_and_Adders/QFTAdd8_after", prefix_passes, passes, threshold)
+            pprint_ddict(after, "After", names)
+            #qasm_from_ddict(after, names)
+            log_ddict_to_tsv("QFTAdd8_after", after, names, path=None)
+            
+            #print(f"Threshold: {threshold} or {np.sqrt(threshold)}")
 
-from notify import notify
-#notify("Completed the big compilation experiment!")
+        from notify import notify
+        #notify("Completed the big compilation experiment!")
