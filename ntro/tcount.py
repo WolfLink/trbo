@@ -6,6 +6,17 @@ from bqskit.qis.unitary import RealVector
 from bqskit.qis.state.state import StateVector
 from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
 
+NTRORS = False
+try:
+    from bqskitrs import SumResidualsFunction as NTRORS_SumResidualsFunction
+    from bqskitrs import SmallestNResidualsFunction as NTRORS_SmallestNResidualsFunction
+    NTRORS = True
+except:
+    raise
+    import warnings
+    warnings.warn("Build your own bqskitrs from the version in the NTRO github for better performance.")
+
+
 import numpy as np
 import numpy.typing as npt
 
@@ -96,7 +107,10 @@ class SumResidualsGenerator(CostFunctionGenerator):
         circuit: Circuit,
         target: UnitaryMatrix | StateVector,
     ) -> CostFunction:
-        return SumResiduals(self.A.gen_cost(circuit, target), self.B.gen_cost(circuit, target), circuit.params)
+        if NTRORS:
+            return NTRORS_SumResidualsFunction(self.A.gen_cost(circuit, target), self.B.gen_cost(circuit, target))
+        else:
+            return SumResiduals(self.A.gen_cost(circuit, target), self.B.gen_cost(circuit, target), circuit.params)
 
 class SumResiduals(DifferentiableResidualsFunction):
     def __init__(self, A: DifferentiableResidualsFunction, B: DifferentiableResidualsFunction, test_params):
@@ -211,6 +225,11 @@ class RoundSmallestNResidualsGenerator(CostFunctionGenerator):
         circuit: Circuit,
         target: UnitaryMatrix | StateVector,
     ) -> CostFunction:
+        if NTRORS:
+            if self.smoothed:
+                raise NotImplemented
+            else:
+                return NTRORS_SmallestNResidualsFunction(self.N, self.period, circuit.dim)
         if self.smoothed:
             return RoundSmallestNResidualsSmoothed(self.N, self.period, circuit.dim)
         else:

@@ -1,12 +1,13 @@
 import os
 from ntro.clift import clifford_gates, t_gates, rz_gates
+import datetime
 
 
 # expected: two pass dicts with the first one being just gridsynth and the second being ntro
 def log_ddict_to_tsv(gate_name, ddict, path=None):
     key_blacklist = ["qasm", "gridsynth_stats", "gates", "intermediate_gate_counts"]
     if path is None:
-        path = "./results.tsv"
+        path = "./log.tsv"
 
     all_gates = []
     for gate in ddict["og_gates"]:
@@ -34,35 +35,61 @@ def log_ddict_to_tsv(gate_name, ddict, path=None):
             elif gate in rz_gates:
                 og_gate_summary["rz"] = og_gate_summary["rz"] + value
 
+    # separate gate base name from suffix
+    if "_after" in gate_name:
+        gate_base_name, gate_suffix = gate_name.split("_after")
+        gate_suffix = "after" + gate_suffix
+    elif "_before" in gate_name:
+        gate_base_name, gate_suffix = gate_name.split("_before")
+        gate_suffix = "before" + gate_suffix
+    else:
+        gate_base_name = gate_name
+        gate_suffix = ""
+
+    parsed_data = {
+            "block_size" : -1,
+            "threshold" : -1,
+            "gridsynth_time" : -1,
+            "ntro_time" : -1,
+            "control_dist" : -1,
+            "gridsynth_dist" : -1,
+            "ntro_dist" : -1,
+            "og_t" : og_gate_summary["t"],
+            "og_cliff" : og_gate_summary["cliff"],
+            "og_rz" : og_gate_summary["rz"],
+            "gridsynth_t" : -1,
+            "gridsynth_cliff" : -1,
+            "int_rz" : -1,
+            "opt_t" : -1,
+            "opt_cliff" : -1,
+            }
+
+    if "threshold" in ddict:
+        parsed_data["threshold"] = ddict["threshold"]
+    if "control_dist" in ddict:
+        parsed_data["control_dist"] = ddict["control_dist"]
+    if "block_size" in ddict:
+        parsed_data["block_size"] = ddict["block_size"]
+
     if not os.path.isfile(path):
         print(f"creating {path}")
         with open(path, "w+") as f:
             pdict = ddict["results"][0]
-            # first column is gate name, second is pass title
-            dataline = "gate_name\tpass_title"
+            # first column is gate name and suffix
+            dataline = "gate_name\tgate_suffix"
 
-            # next columns are the extra data from the pdict
-            for key in pdict:
-                if key in key_blacklist:
-                    continue
+            # next add the data from the parsed_data dict
+            for key in parsed_data:
                 dataline += f"\t{key}"
 
-            # lastly we add titles for gate analysis
-            dataline += f"\tog_cliff\tog_rz\tog_t\topt_cliff\tint_rz\topt_t"
+            # finally add a timestamp
+            dataline += "\ttimestamp"
+
             f.write(dataline + "\n")
 
     for i, pdict in enumerate(ddict["results"]):
         # print the column titles line
-
-        # first column is gate name, second is pass title
-        dataline = f"{gate_name}\t{pass_titles[i]}"
-
         # next columns are the extra data from the pdict
-        for key in pdict:
-            if key in key_blacklist:
-                continue
-            dataline += f"\t{pdict[key]}"
-
         opt_cliff = 0
         int_rz = 0
         opt_t = 0
@@ -79,8 +106,34 @@ def log_ddict_to_tsv(gate_name, ddict, path=None):
         else:
             int_rz = -1
 
-        # lastly we add gate analysis
-        dataline += f"\t{og_gate_summary['cliff']}\t{og_gate_summary['rz']}\t{og_gate_summary['t']}\t{opt_cliff}\t{int_rz}\t{opt_t}"
-        with open(path, "a") as f:
-            f.write(dataline + "\n")
+        if i == 0:
+            # assume gridsynth
+            parsed_data["gridsynth_t"] = opt_t
+            parsed_data["gridsynth_cliff"] = opt_cliff
+            parsed_data["gridsynth_dist"] = pdict["distance"]
+            parsed_data["gridsynth_time"] = pdict["time"]
+        elif i == 1:
+            # assume ntro
+            parsed_data["int_rz"] = int_rz
+            parsed_data["opt_t"] = opt_t
+            parsed_data["opt_cliff"] = opt_cliff
+            parsed_data["ntro_dist"] = pdict["distance"]
+            parsed_data["ntro_time"] = pdict["time"]
+        else:
+            print("Surprised by more than 2 pass dicts!")
+            continue
+
+
+    # first column is gate name and suffix
+    dataline = f"{gate_base_name}\t{gate_suffix}"
+
+    # next add the data from the parsed_data dict
+    for key in parsed_data:
+        dataline += f"\t{parsed_data[key]}"
+
+    # finally add a timestamp
+    timestr = datetime.datetime.now().isoformat()
+    dataline += f"\t{timestr}"
+    with open(path, "a") as f:
+        f.write(dataline + "\n")
 
