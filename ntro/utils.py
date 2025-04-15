@@ -6,13 +6,22 @@ class ComputeErrorThresholdPass(BasePass):
         self.target_threshold = target_threshold
 
     async def run(self, circuit, data = {}):
-        num_blocks = len(list(circuit.operations_with_cycles()))
-        output_threshold = self.target_threshold / num_blocks
+        num_blocks = self.get_num_blocks(circuit)
+        output_threshold = self.get_threshold(circuit)
         data[ForEachBlockPass.pass_down_key_prefix + "adjusted_threshold"] = output_threshold
         data[ForEachBlockPass.pass_down_key_prefix + "num_blocks"] = num_blocks
         #for key in data:
         #    if key.startswith(ForEachBlockPass.pass_down_key_prefix):
         #        print(f"{key} was a hit")
+
+    def get_threshold(self, circuit):
+        num_blocks = self.get_num_blocks(circuit)
+        output_threshold = self.target_threshold / num_blocks
+        return output_threshold
+
+    def get_num_blocks(self, circuit):
+        num_blocks = len(list(circuit.operations_with_cycles()))
+        return num_blocks
 
 
 class UnwrapForEachPassDown(BasePass):

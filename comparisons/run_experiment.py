@@ -23,6 +23,10 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
     filename = os.path.basename(source_file)
     name, ext = os.path.splitext(filename)
     data_dict = {"name" : name, "ext" : ext, "filepath" : source_file}
+    if threshold is not None:
+        data_dict["threshold"] = threshold
+    if block_size is not None:
+        data_dict["block_size"] = block_size
 
 
     print_title(f"{name} - parse ({block_size}, {threshold})")
@@ -53,10 +57,11 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
             found_invalid = True
     
     if found_invalid:
-        print(f"Skipping circuit {name} because it contains a gate that isn't Clifford+T+Rz")
-        return None
+        data_dict["error"] = f"Skipping circuit {name} because it contains a gate that isn't Clifford+T+Rz"
+        return data_dict
     elif not found_rz:
-        print(f"Skipping circuit {name} because it is alreay in Clifford+T (nothing to optimize!)")
+        data_dict["error"] = f"Skipping circuit {name} because it is already in Clifford+T (nothing to optimize!)"
+        return data_dict
 
     data_dict["og_gates"] = og_circuit.gate_counts
     data_dict["og_qasm"] = og_circuit.to("qasm")
@@ -65,6 +70,9 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
     with Compiler() as compiler:
         og_circuit, pass_data = compiler.compile(og_circuit, prefix_passes, request_data=True)
     data_dict["num_partitions"] = len(list(og_circuit.operations_with_cycles()))
+    if ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(og_circuit) < 1e-7:
+        data_dict["error"] = f"Skipping circuit {name} because it required too tight an error threshold {ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(og_circuit)}"
+        return data_dict
     
     opt_circuit = og_circuit
     results = []
@@ -118,6 +126,12 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
         result_circuit = opt_circuit.copy()
         result_circuit.unfold_all()
         pass_dict = {"gates" : result_circuit.gate_counts, "qasm" : result_circuit.to("qasm"), "time" : stop - start}
+        for gate in result_circuit.gate_counts:
+            if gate not in clifford_gates + t_gates:
+                if result_circuit.gate_counts[gate] > 0:
+                    print(f"Optimization Failure.  Gate {gate} has count {result_circuit.gate_counts[gate]}")
+                    print(result_circuit.gate_counts)
+                    return None
         if intermediate_gate_counts is not None:
             pass_dict["intermediate_gate_counts"] = intermediate_gate_counts
         if gridsynth_stats is not None:
@@ -138,10 +152,6 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
 
         results.append(pass_dict)
     data_dict["results"] = results
-    if threshold is not None:
-        data_dict["threshold"] = threshold
-    if block_size is not None:
-        data_dict["block_size"] = block_size
     try:
         with Compiler() as compiler:
             noop_passes = [ForEachBlockPass([NOOPPass()], calculate_error_bound=True)]
@@ -224,29 +234,18 @@ def print_title(text, length=80):
 #if __name__ == "__main__":
 #for threshold in [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]:
 def run_benchmarks(files=[], thresholds=[1e-5,1e-3,1e-7, 1e-4, 1e-6, 1e-8], block_sizes=[4, 3, 5, 6, 7], path=None):
-    checkpoint = None
+    checkpoint = []
     try:
         with open("checkpoint.json", "r") as f:
             checkpoint = json.load(f)
-        assert checkpoint["files"]["data"] == files[checkpoint["files"]["index"]]
-        assert checkpoint["thresholds"]["data"] == thresholds[checkpoint["thresholds"]["index"]]
-        assert checkpoint["block_sizes"]["data"] == block_sizes[checkpoint["block_sizes"]["index"]]
     except:
-        checkpoint = None
+        pass
 
     for indb, block_size in enumerate(block_sizes):
         for indt, threshold in enumerate(thresholds):
             for indf, file in enumerate(files):
-                if checkpoint is not None:
-                    if indb < checkpoint["block_sizes"]["index"]:
-                        continue
-                    elif indt < checkpoint["thresholds"]["index"]:
-                        continue
-                    elif indf < checkpoint["files"]["index"]:
-                        continue
-                    elif indb == checkpoint["block_sizes"]["index"] and indt == checkpoint["thresholds"]["index"] and indf == checkpoint["files"]["index"]:
-                        checkpoint = None
-                        continue
+                if f"{(block_size, threshold, file)}" in checkpoint:
+                    continue
                 blacklist = ["2048", "1024"]
                 triggered = False
                 for trigger in blacklist:
@@ -281,13 +280,12 @@ def run_benchmarks(files=[], thresholds=[1e-5,1e-3,1e-7, 1e-4, 1e-6, 1e-8], bloc
                 ddict = run_experiment(file, prefix_passes, passes, threshold, block_size)
                 pprint_ddict(ddict, os.path.basename(file), ["gridsynth", "ntro"])
                 log_ddict_to_tsv(os.path.basename(file), ddict, path)
-                new_checkpoint = {
-                        "files" : {"index" : indf, "data" : file},
-                        "block_sizes" : {"index" : indb, "data" : block_size},
-                        "thresholds" : {"index" : indt, "data" : threshold},
-                        }
+                from notify import notify
+                notify("debugadone")
+                exit(0)
                 with open("checkpoint.json", "w") as f:
-                    json.dump(new_checkpoint, f)
+                    checkpoint.append(f"{(block_size, threshold, file)}")
+                    json.dump(checkpoint, f)
 
     from notify import notify
     notify("Completed the big compilation experiment!")
@@ -299,6 +297,5 @@ def sort_benchmarks(files):
 
 directory = "./quipper_circuits/optimizer/QFT_and_Adders/"
 files = [directory + filename for filename in os.listdir(directory)]
-files = [directory + filename for filename in ["QFTAdd8_before", "QFTAdd8_after"]]
 
 run_benchmarks(files=sort_benchmarks(files))

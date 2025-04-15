@@ -96,13 +96,17 @@ class GridsynthPass(BasePass):
             return
 
         preoptimize = self.preoptimize
+        target_type = None
         if "utry" in data:
             target = data["utry"]
+            target_type = "data"
         elif self.utry is not None:
             target = self.utry
+            target_type = "self"
         else:
             target = circuit.get_unitary()
             preoptimize = False
+            target_type = "getu"
 
 
         if "adjusted_threshold" in data:
@@ -114,39 +118,52 @@ class GridsynthPass(BasePass):
         
         if preoptimize:
             cost_func = HilbertSchmidtResidualsGenerator().gen_cost(circuit, target)
-            result = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(cost_func, circuit.params)
+            result = CeresMinimizer(ftol=1e-17, gtol=1e-17).minimize(cost_func, circuit.params)
             if circuit.get_unitary(result).get_distance_from(target) < circuit.get_unitary().get_distance_from(target):
                 circuit.set_params(result)
 
         d = circuit.get_unitary().get_distance_from(target)
+        if d >= threshold:
+            print(f"Gridsynth failed because the initial circuit is not close enough to the target circuit ({d} > {threshold}) target_type: {target_type
+                  }")
+            print(f"WTFDIST: {circuit.get_unitary().get_distance_from(circuit.get_unitary())}")
+            return
 
-        trial_e = (threshold-d) / circuit.num_params
+        min_e = (threshold-d) / circuit.num_params
         best_circuit = circuit.copy()
         gridsynth = GridsynthSweeper(circuit, target, self.gridsynth_binary)
-        gridsynth.resynthesize(best_circuit, trial_e)
-        best_dist = HilbertSchmidtCostGenerator().gen_cost(best_circuit, target)(best_circuit.params)
-        log_hash = np.sum(best_circuit.params)
         max_iter = 100
-        iterations = 2
         delta = threshold * 0.1
-        _logger.info(f"Initial Test: {best_dist} using {trial_e} threshold:{threshold}")
-        min_e = trial_e / 10
-        max_e = trial_e * 10
+
         min_c, min_d = gridsynth.resynthesize(circuit, min_e)
+        max_e = min_e
+        max_d = min_d
+
+        iterations = 1
+        GSLOG = [(min_e, min_d)]
         while min_d >= threshold and iterations < max_iter:
+            max_e = min_e
+            max_d = min_d
             min_e /= 10
             min_c, min_d = gridsynth.resynthesize(circuit, min_e)
             iterations += 1
-        if min_d < threshold:
-            best_circuit = min_c
-            best_dist = min_d
+            GSLOG.append((min_e, min_d))
 
-        iter_1 = iterations
-        _, max_d = gridsynth.resynthesize(circuit, max_e)
+        if min_d >= threshold:
+            for entry in GSLOG:
+                print(f"e: {entry[0]}\t->\td: {entry[1]}")
+            print(f"Gridsynth failed because gridsynth could not find a good enough solution even at low e values ({min_d} > {threshold})")
+            return
+        best_circuit = min_c
+        best_dist = min_d
+
+
         while max_d < threshold and iterations < max_iter:
             max_e *= 10
             _, max_d = gridsynth.resynthesize(circuit, max_e)
             iterations += 1
+            GSLOG.append((max_e, max_d))
+
         while max_d - min_d > delta and max_e - min_e > threshold and iterations < max_iter:
             e = (min_e + max_e) / 2
             c, d = gridsynth.resynthesize(circuit, e)
@@ -154,6 +171,7 @@ class GridsynthPass(BasePass):
             while d >= threshold and r > 0:
                 r -= 1
                 c, d = gridsynth.resynthesize(circuit, e)
+            GSLOG.append((e, d))
             iterations += 1
             if d < threshold:
                 best_circuit = c
@@ -164,13 +182,20 @@ class GridsynthPass(BasePass):
                 max_e = e
                 max_d = d
 
-        Rz_counts = circuit.num_params
-        if best_dist < threshold:
+        if best_dist < threshold and best_circuit.num_params == 0:
+            if iterations > 90:
+                print(f"GRIDSYNTH RESULTS: {min_d} < {threshold} at {min_e} after {iterations}")
             circuit.become(best_circuit)
             circuit.unfold_all()
+            print(circuit.gate_counts)
+            return
         else:
             _logger.info(f"Gridsynth failed to find a valid circuit.  This likely indicates a bug in bqskit or ntro.")
+            print(f"GRIDSYNTH FAILURE: {best_dist} > {threshold} after {iterations} and {min_e}")
+            for entry in GSLOG:
+                print(f"e: {entry[0]}\t->\td: {entry[1]}")
         T_counts = np.sum([circuit.gate_counts[gate] for gate in circuit.gate_counts if gate in t_gates])
+        Rz_counts = circuit.num_params
         data["gridsynth_stats"] = {"rz" : Rz_counts, "t" : T_counts, "e" : trial_e, "thresh" : threshold, "d" : best_circuit.get_unitary().get_distance_from(target)}
         #data["subcircuit_data"] = f"keys: {[key for key in data]}"
         #data["subcircuit_data"] = f"Circuit {data['subnumbering']}, d is {HilbertSchmidtCostGenerator().gen_cost(circuit, target)(circuit.params)} T: {T_counts} iter: {iterations} {min_e}/{min_d} < {max_e}/{max_d}"
