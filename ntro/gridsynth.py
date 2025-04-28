@@ -85,14 +85,13 @@ class GridsynthPass(BasePass):
         self.threshold = threshold
         self.utry = utry
         self.gridsynth_binary = gridsynth_binary
+        if gridsynth_binary is None:
+            raise FileNotFoundError("A gridsynth binary must be provided to run GridsynthPass.")
         self.retries = retries
         self.preoptimize = preoptimize
        
     async def run(self, circuit, data={}):
         if circuit.num_params < 1:
-            return
-        if self.gridsynth_binary is None and get_gridsynth_binary() is None:
-            _logger.info("A gridsynth binary must be provided to run GridsynthPass.")
             return
 
         preoptimize = self.preoptimize
@@ -186,17 +185,14 @@ class GridsynthPass(BasePass):
             if iterations > 90:
                 print(f"GRIDSYNTH RESULTS: {min_d} < {threshold} at {min_e} after {iterations}")
             circuit.become(best_circuit)
-            circuit.unfold_all()
-            print(circuit.gate_counts)
-            return
         else:
             _logger.info(f"Gridsynth failed to find a valid circuit.  This likely indicates a bug in bqskit or ntro.")
-            print(f"GRIDSYNTH FAILURE: {best_dist} > {threshold} after {iterations} and {min_e}")
+            print(f"GRIDSYNTH FAILURE at END: {repr(best_dist)} > {repr(threshold)} after {iterations} and {min_e}")
             for entry in GSLOG:
                 print(f"e: {entry[0]}\t->\td: {entry[1]}")
-        T_counts = np.sum([circuit.gate_counts[gate] for gate in circuit.gate_counts if gate in t_gates])
-        Rz_counts = circuit.num_params
-        data["gridsynth_stats"] = {"rz" : Rz_counts, "t" : T_counts, "e" : trial_e, "thresh" : threshold, "d" : best_circuit.get_unitary().get_distance_from(target)}
+        #T_counts = np.sum([circuit.gate_counts[gate] for gate in circuit.gate_counts if gate in t_gates])
+        #Rz_counts = circuit.num_params
+        #data["gridsynth_stats"] = {"rz" : Rz_counts, "t" : T_counts, "e" : trial_e, "thresh" : threshold, "d" : best_circuit.get_unitary().get_distance_from(target)}
         #data["subcircuit_data"] = f"keys: {[key for key in data]}"
         #data["subcircuit_data"] = f"Circuit {data['subnumbering']}, d is {HilbertSchmidtCostGenerator().gen_cost(circuit, target)(circuit.params)} T: {T_counts} iter: {iterations} {min_e}/{min_d} < {max_e}/{max_d}"
         #data["subcircuit_data"] = f"Circuit {data['subnumbering']}\t{iterations}\t{best_dist}\t<\t{threshold}\t{min_e}/{min_d}\t<\t{max_e}/{max_d}"

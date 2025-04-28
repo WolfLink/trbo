@@ -161,28 +161,18 @@ class NumericalTReductionPass(BasePass):
                 trial_params = result.params
                 #score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
                 score = n_gen.gen_cost(trial_circuit, target)(trial_params) + trial_circuit.get_unitary(trial_params).get_distance_from(target)
-            if score >= threshold and False:
-                two_pass = TwoPassMinimization(
-                        pass_w_cost_gen=sum_gen,
-                        success_threshold=threshold,
-                        num_starts=self.multistarts,
-                        **self.extra_kwargs,
-                        )
-                result = await get_runtime().submit(
-                    two_pass.multi_start_instantiate_async,
-                    trial_circuit,
-                    target=target,
-                )
-                if result is not None:
-                    trial_params = result.params
-                    score = n_gen.gen_cost(trial_circuit, target)(trial_params) + trial_circuit.get_unitary(trial_params).get_distance_from(target)
 
+            # The optimization pass we do first is a fast, broad search, but is technically less accurate.
+            # If it doesn't quite get us an acceptable result, we try using a more accurate but slower minimization
+            # to fine tune the result.
             if score >= threshold:
-                #print(f"Failed {N} with score {n_gen.gen_cost(trial_circuit, target)(trial_params):.3} + {d_gen.gen_cost(trial_circuit, target)(trial_params):.3} = {score:.3} > {threshold}")
+                trial_params = LBFGSMinimizer().minimize(sum_gen.gen_cost(circuit, target), trial_params)
+                score = n_gen.gen_cost(trial_circuit, target)(trial_params) + trial_circuit.get_unitary(trial_params).get_distance_from(target)
+
+                # after all that trying to get a good result, we ultimately have to 
+            if score >= threshold:
                 high = N - 1
-                #print(f"TRYING {low} < {N} < {high} FAILED with score {score}")
             else:
-                #print(f"TRYING {low} < {N} < {high} PASSED with score {score}")
                 low = N + 1
                 best_params = trial_params
                 best_N = N

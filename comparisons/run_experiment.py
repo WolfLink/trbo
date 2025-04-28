@@ -18,7 +18,7 @@ from parse_quipper import parse_quipper_file
 
 from data_collecting import log_ddict_to_tsv
 
-def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block_size=None):
+def run_experiment(source_file, pass_lists, threshold=None, block_size=None):
     source_file = os.path.normpath(source_file)
     filename = os.path.basename(source_file)
     name, ext = os.path.splitext(filename)
@@ -68,11 +68,11 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
 
     print_title(f"{name} - prefix ({block_size}, {threshold})")
     with Compiler() as compiler:
-        og_circuit, pass_data = compiler.compile(og_circuit, prefix_passes, request_data=True)
-    data_dict["num_partitions"] = len(list(og_circuit.operations_with_cycles()))
-    if ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(og_circuit) < 1e-7:
-        data_dict["error"] = f"Skipping circuit {name} because it required too tight an error threshold {ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(og_circuit)}"
-        return data_dict
+        check_circuit, pass_data = compiler.compile(og_circuit, [QuickPartitioner(12)], request_data=True)
+        data_dict["num_partitions"] = len(list(check_circuit.operations_with_cycles()))
+    #if ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(check_circuit) < 5e-6:
+    #    data_dict["error"] = f"Skipping circuit {name} because it required too tight an error threshold {ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(og_circuit)} considering a threshold of {threshold} and {data_dict['num_partitions']} partitions"
+    #    return data_dict
     
     opt_circuit = og_circuit
     results = []
@@ -88,6 +88,7 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
         pass_dict = dict()
         start = timer()
         intermediate_gate_counts = None
+        intermediate_block_counts = None
         gridsynth_stats = None
         try:
             with Compiler() as compiler:
@@ -106,6 +107,10 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
                                             intermediate_gate_counts[key] += item_item["intermediate_gate_counts"][key]
                                         else:
                                             intermediate_gate_counts[key] = item_item["intermediate_gate_counts"][key]
+                            if "intermediate_block_count" in item_item:
+                                if intermediate_block_counts is None:
+                                    intermediate_block_counts = 0
+                                intermediate_block_counts += item_item["intermediate_block_count"]
                             if "gridsynth_stats" in item_item:
                                 if gridsynth_stats is None:
                                     gridsynth_stats = {"rz" : [], "t" : [], "e" : [], "d" : [], "thresh" : []}
@@ -129,11 +134,13 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
         for gate in result_circuit.gate_counts:
             if gate not in clifford_gates + t_gates:
                 if result_circuit.gate_counts[gate] > 0:
-                    print(f"Optimization Failure.  Gate {gate} has count {result_circuit.gate_counts[gate]}")
+                    print(f"Pass {pass_name} failed optimization.  Gate {gate} has count {result_circuit.gate_counts[gate]}")
                     print(result_circuit.gate_counts)
                     return None
         if intermediate_gate_counts is not None:
             pass_dict["intermediate_gate_counts"] = intermediate_gate_counts
+        if intermediate_block_counts is not None:
+            pass_dict["intermediate_block_count"] = intermediate_block_counts
         if gridsynth_stats is not None:
             pass_dict["gridsynth_stats"] = gridsynth_stats
         if opt_circuit.dim > 0 and opt_circuit.dim <= 1024:
@@ -155,7 +162,7 @@ def run_experiment(source_file, prefix_passes, pass_lists, threshold=None, block
     try:
         with Compiler() as compiler:
             noop_passes = [ForEachBlockPass([NOOPPass()], calculate_error_bound=True)]
-            _, pass_data = compiler.compile(og_circuit, noop_passes, request_data=True)
+            _, pass_data = compiler.compile(check_circuit, noop_passes, request_data=True)
             if "error" in pass_data:
                 data_dict["control_dist"] = pass_data["error"]
     except:
@@ -198,7 +205,8 @@ def pprint_ddict(ddict, title=None, pass_titles = None):
         else:
             name = f"Pass {i}"
         if "intermediate_gate_counts" in pdict:
-            print(gate_count_str(name+"-I", {"gates" : pdict["intermediate_gate_counts"]}))
+            block_data = f"({pdict['intermediate_block_count']} blocks)"
+            print(gate_count_str(name+"-I " + block_data, {"gates" : pdict["intermediate_gate_counts"]}))
         if "gridsynth_stats" in pdict and False:
             rz = np.array(pdict["gridsynth_stats"]["rz"])
             t = np.array(pdict["gridsynth_stats"]["t"])
@@ -206,14 +214,14 @@ def pprint_ddict(ddict, title=None, pass_titles = None):
             e = np.array(pdict["gridsynth_stats"]["e"])
             thresh = np.array(pdict["gridsynth_stats"]["thresh"])
             print(f"{name}-gridsynth Rz: {np.min(rz)}<{np.mean(rz):.3}<{np.max(rz)} ({np.sum(rz)})\tT: {np.min(t)}<{np.mean(t):.3}<{np.max(t)} ({np.sum(t)})\td: {np.min(d):.3}<{np.mean(d):.3}<{np.max(d):.3}\tthresh: {np.min(thresh):.3}<{np.mean(thresh):.3}<{np.max(thresh):.3}\te: {np.min(e):.3}<{np.mean(e):.3}<{np.max(e):.3}")
-        print(gate_count_str(name, pdict))
+
+        block_data = f" ({ddict['num_partitions']} blocks)"
+        print(gate_count_str(name + block_data, pdict))
 
     print("="*10)
 
-            
 
-
-def qasm_from_ddict(ddict, pass_titles, base_path=None):
+def save_qasm_from_ddict(ddict, pass_titles, base_path=None):
     if base_path is None:
         base_path = "./"
 
@@ -223,6 +231,7 @@ def qasm_from_ddict(ddict, pass_titles, base_path=None):
         with open(path, "w+") as f:
             f.write(pdict["qasm"])
 
+
 def print_title(text, length=80):
     titlestr = " " + text + " "
     before_len = (length - len(titlestr)) // 2
@@ -231,12 +240,15 @@ def print_title(text, length=80):
 
 
 
-#if __name__ == "__main__":
-#for threshold in [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]:
-def run_benchmarks(files=[], thresholds=[1e-5,1e-3,1e-7, 1e-4, 1e-6, 1e-8], block_sizes=[4, 3, 5, 6, 7], path=None):
+def run_benchmarks(files=[], thresholds=[1e-3,1e-4,1e-5], block_sizes=[4, 3, 5, 6, 7, 8], path=None):
+    if path is None:
+        path = "./"
+    elif not os.path.exists(path):
+        os.makedirs(path)
+
     checkpoint = []
     try:
-        with open("checkpoint.json", "r") as f:
+        with open(os.path.join(path, "checkpoint.json"), "r") as f:
             checkpoint = json.load(f)
     except:
         pass
@@ -254,48 +266,65 @@ def run_benchmarks(files=[], thresholds=[1e-5,1e-3,1e-7, 1e-4, 1e-6, 1e-8], bloc
                         break
                 if triggered:
                     continue
-                prefix_passes = [
-                        QuickPartitioner(block_size),
+                source_file = os.path.normpath(file)
+                filename = os.path.basename(source_file)
+                name, ext = os.path.splitext(filename)
+                gridsynth_passes = [
+                        QuickPartitioner(12),
+                        ComputeErrorThresholdPass(threshold),
+                        ForEachBlockPass([
+                            UnwrapForEachPassDown(),
+                            GridsynthPass(gridsynth_binary="../examples/gridsynth")
+                            ], calculate_error_bound=True),
+                        UnfoldPass(),
+                        SaveQasmPass(os.path.join(path, name + f"-BS{block_size}-T{threshold}-gsynth.qasm")),
                         ]
                 ntro_passes = [
-                        ComputeErrorThresholdPass(target_threshold=threshold),
+                        QuickPartitioner(block_size),
                         ForEachBlockPass([
-                            UnwrapForEachPassDown(),
                             NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=threshold),
                             LogIntermediateGateCountsPass(),
-                            GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
                             ], calculate_error_bound=True),
-                        #LogErrorPass("after_ntro"),
-                        ]
-                gridsynth_passes = [
-                        ComputeErrorThresholdPass(target_threshold=threshold),
+                        UnfoldPass(),
+                        ] + gridsynth_passes
+
+
+
+                ntro_beta_passes = [
+                        QuickPartitioner(block_size),
+                        QuickPartitioner(6),
+                        ForEachBlockPass([
+                            ForEachBlockPass([
+                                NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=1e-6),
+                                ]),
+                            LogIntermediateGateCountsPass(),
+                            UnfoldPass(),
+                            UnwrapForEachPassDown(),
+                            ]),
+                        SaveQasmPass(os.path.join(path, name + f"-BS{block_size}-T{threshold}-ntro-int.qasm")),
+                        ComputeErrorThresholdPass(threshold),
                         ForEachBlockPass([
                             UnwrapForEachPassDown(),
-                            GridsynthPass(gridsynth_binary="../examples/gridsynth", threshold=threshold)
-                            ], calculate_error_bound=True),
-                        #LogErrorPass("after_gridsynth"),
+                            GridsynthPass(gridsynth_binary="../examples/gridsynth"),
+                            ]),
+                        UnfoldPass(),
+                        SaveQasmPass(os.path.join(path, name + f"-BS{block_size}-T{threshold}-ntro-fin.qasm")),
                         ]
                
-                passes = [gridsynth_passes, ntro_passes]
-                ddict = run_experiment(file, prefix_passes, passes, threshold, block_size)
+                passes = [gridsynth_passes, ntro_beta_passes]
+                ddict = run_experiment(file, passes, threshold, block_size)
                 pprint_ddict(ddict, os.path.basename(file), ["gridsynth", "ntro"])
                 log_ddict_to_tsv(os.path.basename(file), ddict, path)
-                from notify import notify
-                notify("debugadone")
-                exit(0)
                 with open("checkpoint.json", "w") as f:
                     checkpoint.append(f"{(block_size, threshold, file)}")
                     json.dump(checkpoint, f)
 
-    from notify import notify
-    notify("Completed the big compilation experiment!")
+#def sort_benchmarks(files):
+#    return list(reversed(sorted(files))) # TODO - sort first by size (qubits) then alphabetically
 
 
-def sort_benchmarks(files):
-    return list(reversed(sorted(files))) # TODO - sort first by size (qubits) then alphabetically
-
-
-directory = "./quipper_circuits/optimizer/QFT_and_Adders/"
-files = [directory + filename for filename in os.listdir(directory)]
-
-run_benchmarks(files=sort_benchmarks(files))
+#directory = "./quipper_circuits/optimizer/QFT_and_Adders/"
+#files = [directory + filename for filename in os.listdir(directory)]
+#files = [directory + "QFT8_before", directory + "QFT8_after"]
+#files = [files[0]]
+#run_benchmarks(files=sort_benchmarks(files), thresholds=[1e-3], block_sizes=[4])

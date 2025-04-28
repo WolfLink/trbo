@@ -27,6 +27,7 @@ def log_ddict_to_tsv(gate_name, ddict, path=None):
     parsed_data = {
             "block_size" : -1,
             "partitions" : -1,
+            "ntro_partitions" : -1,
             "threshold" : -1,
             "gridsynth_time" : -1,
             "ntro_time" : -1,
@@ -43,7 +44,9 @@ def log_ddict_to_tsv(gate_name, ddict, path=None):
             "opt_cliff" : -1,
             }
     if path is None:
-        path = "./log.tsv"
+        path = "./"
+
+    path = os.path.join(path, "summary.tsv")
 
     # separate gate base name from suffix
     if "_after" in gate_name:
@@ -135,6 +138,8 @@ def log_ddict_to_tsv(gate_name, ddict, path=None):
                     int_rz += pdict["intermediate_gate_counts"][gate]
         else:
             int_rz = -1
+        if "intermediate_block_count" in pdict:
+            parsed_data["ntro_partitions"] = pdict["intermediate_block_count"]
 
         if i == 0:
             # assume gridsynth

@@ -32,13 +32,26 @@ class UnwrapForEachPassDown(BasePass):
                 keys_to_unwrap.append(key)
         for key in keys_to_unwrap:
             new_key = key.removeprefix(ForEachBlockPass.pass_down_key_prefix)
-            #print(f"{data[new_key]} changed to {data[key]}")
             data[new_key] = data[key]
 
 
 class LogIntermediateGateCountsPass(BasePass):
     async def run(self, circuit, data):
-        data["intermediate_gate_counts"] = circuit.gate_counts
+        data["intermediate_block_count"] = len(list(circuit.operations_with_cycles()))
+        test_circuit = circuit.copy()
+        test_circuit.unfold_all()
+        data["intermediate_gate_counts"] = test_circuit.gate_counts
+
+
+class SaveQasmPass(BasePass):
+    def __init__(self, filepath):
+        self.filepath = filepath
+
+    async def run(self, circuit, data):
+        test_circuit = circuit.copy()
+        test_circuit.unfold_all()
+        with open(self.filepath, "w") as f:
+            f.write(test_circuit.to("qasm"))
 
 class LogErrorPass(BasePass):
     def __init__(self, title):
