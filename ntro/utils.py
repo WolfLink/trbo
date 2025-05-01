@@ -1,5 +1,32 @@
 from bqskit.compiler.basepass import BasePass
+from bqskit.compiler import Workflow
 from bqskit.passes.control.foreach import ForEachBlockPass
+from bqskit.runtime import get_runtime
+from .clift import best_min_t_count_circuit
+
+
+class FutureQueue:
+    def __init__(self, future, length):
+        self.future = future
+        self.queue = []
+        self.remaining = length
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if len(self.queue) > 0:
+            self.remaining -= 1
+            return self.queue.pop(0)
+        elif self.remaining < 1:
+            raise StopAsyncIteration
+        else:
+            try:
+                self.queue.extend(await get_runtime().next(self.future))
+                return self.queue.pop(0)
+            except RuntimeError:
+                raise StopAsyncIteration
+
 
 class ComputeErrorThresholdPass(BasePass):
     def __init__(self, target_threshold):
@@ -22,6 +49,28 @@ class ComputeErrorThresholdPass(BasePass):
     def get_num_blocks(self, circuit):
         num_blocks = len(list(circuit.operations_with_cycles()))
         return num_blocks
+
+async def _run_workflow_on_circuit(workflow, circuit, data):
+    await workflow.run(circuit, data)
+    return (circuit, data)
+
+class MultistartPass(BasePass):
+    def __init__(self, workflow, multistarts=10, circuit_comparator=best_min_t_count_circuit):
+        self.workflow = Workflow(workflow)
+        self.multistarts = multistarts
+        self.comparator = circuit_comparator
+
+    async def run(self, circuit, data={}):
+        best_circuit = None
+        best_data = None
+        futures = get_runtime().map(_run_workflow_on_circuit, [self.workflow] * self.multistarts, circuit=circuit, data=data)
+        async for _, result in FutureQueue(futures, self.multistarts):
+            new_circuit, new_data = result
+            if self.comparator(best_circuit, new_circuit):
+                best_circuit = new_circuit
+                best_data = new_data
+        circuit.become(best_circuit)
+        data.update(best_data)
 
 
 class UnwrapForEachPassDown(BasePass):

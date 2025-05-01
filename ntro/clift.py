@@ -74,3 +74,52 @@ def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
         elif rounded_val == 4:
             circuit.append_gate(ZGate(), 0)
     return CircuitGate(circuit)
+
+
+def best_min_t_count_circuit(a, b):
+    # if one circuit is None and the other isn't, choose the one that isn't None
+    if a is None:
+        return True
+    elif b is None:
+        return False
+
+    # If both circuits are not None...
+    # choose the circuit that has the least gates that are outside of the cliff+T+Rz set (ideally both circuits have 0)
+    agc = 0
+    bgc = 0
+    for gate in a.gate_counts:
+        if gate not in clifford_gates + t_gates + rz_gates:
+            agc += a.gate_counts[gate]
+    for gate in b.gate_counts:
+        if gate not in clifford_gates + t_gates + rz_gates:
+            bgc += b.gate_counts[gate]
+
+    if agc > bgc:
+        return True
+    elif bgc > agc:
+        return False
+
+
+    # If both circuits have the same count of gates outside cliff+T+Rz (ideally both should have 0)...
+    # choose the circuit with the least gates following this order of priority:
+    # 1. rz_gates 2. t_gates 3. multi-qubit clifford_gates 4. total clifford_gates
+    for gate_list in [rz_gates, t_gates, [gate for gate in clifford_gates if gate.num_qudits > 1], clifford_gates]:
+        agc = 0
+        bgc = 0
+        for gate in a.gate_counts:
+            if gate in gate_list:
+                agc += a.gate_counts[gate]
+        for gate in b.gate_counts:
+            if gate in gate_list:
+                bgc += b.gate_counts[gate]
+
+        if agc > bgc:
+            return True
+        elif bgc > agc:
+            return False
+
+
+    # If the tie persists this far just pick one
+    return False
+        
+        

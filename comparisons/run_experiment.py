@@ -5,8 +5,9 @@ from timeit import default_timer as timer
 
 import numpy as np
 
+import bqskit
 from bqskit.compiler import CompilationTask, Compiler
-from bqskit.passes import ForEachBlockPass, QuickPartitioner, LEAPSynthesisPass, ZXZXZDecomposition, GroupSingleQuditGatePass, UnfoldPass, NOOPPass
+from bqskit.passes import ForEachBlockPass, QuickPartitioner, LEAPSynthesisPass, ZXZXZDecomposition, GroupSingleQuditGatePass, UnfoldPass, NOOPPass, IfThenElsePass, WidthPredicate, GroupSingleQuditGatePass, QFASTDecompositionPass
 
 from ntro import NumericalTReductionPass
 from ntro.gridsynth import GridsynthPass
@@ -18,7 +19,40 @@ from parse_quipper import parse_quipper_file
 
 from data_collecting import log_ddict_to_tsv
 
-def run_experiment(source_file, pass_lists, threshold=None, block_size=None):
+def sort_inputs_by_qubits(file_list, max_qubits=None):
+    files_by_qubit_count = dict()
+    qubit_counts = []
+    for file in file_list:
+        if os.path.isdir(file):
+            continue
+        _, ext = os.path.splitext(file)
+        if ext in [".quipper", ""]:
+            og_circuit = parse_quipper_file(file)
+            num_qubits = int(og_circuit.num_qudits)
+            ar = [] if num_qubits not in qubit_counts else files_by_qubit_count[num_qubits]
+            ar.append(file)
+            files_by_qubit_count[num_qubits] = ar
+            qubit_counts.append(num_qubits)
+        elif ext in [".npy", ".npz"]:
+            unitary = np.load(file)
+            num_qubits = int(np.log(np.shape(unitary)[0]) / np.log(2))
+            ar = [] if num_qubits not in qubit_counts else files_by_qubit_count[num_qubits]
+            ar.append(file)
+            files_by_qubit_count[num_qubits] = ar
+            qubit_counts.append(num_qubits)
+
+    output = []
+    mi = min(qubit_counts)
+    ma = max(qubit_counts)
+    if max_qubits:
+        ma = min(ma, max_qubits)
+    for i in range(mi, ma + 1):
+        if i in qubit_counts:
+            for file in files_by_qubit_count[i]:
+                output.append(file)
+    return output
+
+def run_experiment(source_file, threshold=None, block_size=None):
     source_file = os.path.normpath(source_file)
     filename = os.path.basename(source_file)
     name, ext = os.path.splitext(filename)
@@ -38,6 +72,40 @@ def run_experiment(source_file, pass_lists, threshold=None, block_size=None):
         except:
             data_dict["error"] = traceback.format_exc()
             return data_dict
+    elif ext in [".npy", ".npz"]:
+        print_title(f"{name} - synthesis ({block_size}, {threshold})")
+        unitary = np.load(source_file)
+        start = timer()
+        #model = bqskit.MachineModel(num_qudits=6, gate_set=clifford_gates + t_gates + rz_gates)
+        zxdecomp_passes = [
+                GroupSingleQuditGatePass(),
+                ForEachBlockPass([
+                    IfThenElsePass(
+                        WidthPredicate(2),
+                        ZXZXZDecomposition(),
+                        ),
+                    ]),
+                UnfoldPass(),
+                ]
+        num_qubits = int(np.log(np.shape(unitary)[0]) / np.log(2))
+        if num_qubits <= 3 and False:
+            og_circuit = bqskit.compile(unitary, max_synthesis_size=6)
+        elif num_qubits <= 5 and False:
+            model = bqskit.MachineModel(num_qudits=6, coupling_graph=[(i, i+1) for i in range(5)])
+            og_circuit = bqskit.compile(unitary, machine_model=model, max_synthesis_size=6)
+        else:
+            workflow = [
+                    QFASTDecompositionPass(),
+                    ForEachBlockPass([LEAPSynthesisPass()]),
+                    UnfoldPass(),
+                    ]
+            with Compiler() as compiler:
+                og_circuit = bqskit.Circuit.from_unitary(unitary)
+                og_circuit = compiler.compile(og_circuit, workflow)
+
+        with Compiler() as compiler:
+            og_circuit = compiler.compile(og_circuit, zxdecomp_passes)
+        data_dict["ext"] = ".npy"
     elif ext in [".qasm"]:
         data_dict["error"] = "I haven't implemented qasm parsing yet.  Just need to let bqskit handle it..."
         return data_dict
@@ -57,7 +125,9 @@ def run_experiment(source_file, pass_lists, threshold=None, block_size=None):
             found_invalid = True
     
     if found_invalid:
-        data_dict["error"] = f"Skipping circuit {name} because it contains a gate that isn't Clifford+T+Rz"
+        data_dict["error"] = f"Skipping circuit {name} because it contains a gate that isn't Clifford+T+Rz ({og_circuit.gate_counts})"
+        print(data_dict['error'])
+        exit(0)
         return data_dict
     elif not found_rz:
         data_dict["error"] = f"Skipping circuit {name} because it is already in Clifford+T (nothing to optimize!)"
@@ -70,6 +140,7 @@ def run_experiment(source_file, pass_lists, threshold=None, block_size=None):
     with Compiler() as compiler:
         check_circuit, pass_data = compiler.compile(og_circuit, [QuickPartitioner(12)], request_data=True)
         data_dict["num_partitions"] = len(list(check_circuit.operations_with_cycles()))
+
     #if ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(check_circuit) < 5e-6:
     #    data_dict["error"] = f"Skipping circuit {name} because it required too tight an error threshold {ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(og_circuit)} considering a threshold of {threshold} and {data_dict['num_partitions']} partitions"
     #    return data_dict
@@ -310,6 +381,7 @@ def run_benchmarks(files=[], thresholds=[1e-3,1e-4,1e-5], block_sizes=[4, 3, 5, 
                         UnfoldPass(),
                         SaveQasmPass(os.path.join(path, name + f"-BS{block_size}-T{threshold}-ntro-fin.qasm")),
                         ]
+
                
                 passes = [gridsynth_passes, ntro_beta_passes]
                 ddict = run_experiment(file, passes, threshold, block_size)
@@ -318,13 +390,3 @@ def run_benchmarks(files=[], thresholds=[1e-3,1e-4,1e-5], block_sizes=[4, 3, 5, 
                 with open("checkpoint.json", "w") as f:
                     checkpoint.append(f"{(block_size, threshold, file)}")
                     json.dump(checkpoint, f)
-
-#def sort_benchmarks(files):
-#    return list(reversed(sorted(files))) # TODO - sort first by size (qubits) then alphabetically
-
-
-#directory = "./quipper_circuits/optimizer/QFT_and_Adders/"
-#files = [directory + filename for filename in os.listdir(directory)]
-#files = [directory + "QFT8_before", directory + "QFT8_after"]
-#files = [files[0]]
-#run_benchmarks(files=sort_benchmarks(files), thresholds=[1e-3], block_sizes=[4])

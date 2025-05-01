@@ -40,11 +40,12 @@ _logger = logging.getLogger(__name__)
 class NumericalTReductionPass(BasePass):
     def __init__(
         self,
-        success_threshold: float = 1e-8,
-        full_loops: int = 8,
-        search_method: str = "greedy",
-        multistarts: int = (128, 16),
+        success_threshold: float = 1e-6,
+        full_loops: int = 1,
+        search_method: str = "n_sum",
+        multistarts: int = (32, 16),
         backup: bool = False,
+        profiling_mode = False,
         **kwargs,
     ) -> None:
         """
@@ -155,7 +156,7 @@ class NumericalTReductionPass(BasePass):
             #score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
             score = n_gen.gen_cost(trial_circuit, target)(trial_params) + trial_circuit.get_unitary(trial_params).get_distance_from(target)
             if score >= threshold:
-                miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=self.multistarts[0], minimizer=CeresMinimizer())
+                miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=32, minimizer=CeresMinimizer())
                 #miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
                 result = await miser.multi_start_instantiate_async(trial_circuit, target)
                 trial_params = result.params

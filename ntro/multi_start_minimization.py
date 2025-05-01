@@ -28,30 +28,10 @@ import scipy.optimize
 
 import logging
 
+from .utils import FutureQueue
+
 _logger = logging.getLogger(__name__)
 
-
-class FutureQueue:
-    def __init__(self, future, length):
-        self.future = future
-        self.queue = []
-        self.remaining = length
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if len(self.queue) > 0:
-            self.remaining -= 1
-            return self.queue.pop(0)
-        elif self.remaining < 1:
-            raise StopAsyncIteration
-        else:
-            try:
-                self.queue.extend(await get_runtime().next(self.future))
-                return self.queue.pop(0)
-            except RuntimeError:
-                raise StopAsyncIteration
 
 def run_minimization(
         circuit: Circuit,

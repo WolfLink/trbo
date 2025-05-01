@@ -275,11 +275,11 @@ class RoundSmallestNResiduals(DifferentiableResidualsFunction):
         for i in range(self.N):
             j = indices[i]
             output[i][j] = grad[j]
-            #sr = np.sqrt(deviation[j])
-            #if sr < 1e-10:
-            #    output[i][j] = 0
-            #else:
-            #    output[i][j] = grad[j] * 0.5 / np.sqrt(deviation[j])
+            # sr = np.sqrt(deviation[j])
+            # if sr < 1e-10:
+            #     output[i][j] = 0
+            # else:
+            #     output[i][j] = grad[j] * 0.5 / np.sqrt(deviation[j])
             #output[i][j] = -1 * (2 / self.period) * signs[j] * 0.5 * np.sin(deviation[j])
             #output[i][j] = -1 * (2 / self.period) * signs[j] * 0.25 * np.sin(deviation[j]) / np.sqrt(0.5 - 0.5 * np.cos(deviation[j]))
         #return np.sqrt(self.dim) * output
