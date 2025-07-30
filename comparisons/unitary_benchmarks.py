@@ -1,8 +1,9 @@
 import os
+from timeit import default_timer as timer
 
 import numpy as np
 
-from bqskit import Circuit
+from bqskit import Circuit, MachineModel
 from bqskit.compiler import Compiler
 from bqskit.passes import *
 
@@ -16,14 +17,18 @@ from run_experiment import sort_inputs_by_qubits
 
 directory = "./unitaries"
 files = [os.path.join(directory,filename) for filename in os.listdir(directory)]
-files = sort_inputs_by_qubits(files, max_qubits=3)
+#files = [file for file in files if "qft" in file]
+files = sort_inputs_by_qubits(files)
 
 def run_unitary_experiment(source_file):
+    model = MachineModel(num_qudits=6, coupling_graph=[(i, i+1) for i in range(5)])
     synthesis_passes = [
-            MultistartPass([
-                QFASTDecompositionPass(),
-                ForEachBlockPass([LEAPSynthesisPass()]),
-                UnfoldPass(),
+            MultistartPass(multistarts=2, workflow=[
+                IfThenElsePass(WidthPredicate(5),
+                               NOOPPass(),
+                               SetModelPass(model),
+                               ),
+                LEAPSynthesisPass(),
                 GroupSingleQuditGatePass(),
                 ForEachBlockPass([
                     IfThenElsePass(
@@ -39,10 +44,16 @@ def run_unitary_experiment(source_file):
             GridsynthPass(gridsynth_binary="../examples/gridsynth"),
             UnfoldPass(),
             ]
+
     unitary = np.load(source_file)
     with Compiler() as compiler:
+        start = timer()
         circuit = compiler.compile(Circuit.from_unitary(unitary), synthesis_passes)
-        print(f"success: {circuit.gate_counts} for {source_file}")
+        if circuit.num_qudits > 8:
+            print(f"skipped {source_file} because it has {circuit.num_qudits} qubits.")
+            return
+        time = timer() - start
+        print(f"success: {circuit.gate_counts} for {source_file} after {time}s")
 
 
 #run_synthetiq_benchmarks(files, "./results/unitary/synthetiq/", "./synthetiq")

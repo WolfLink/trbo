@@ -1,7 +1,10 @@
 from bqskit.compiler.basepass import BasePass
 from bqskit.compiler import Workflow
 from bqskit.passes.control.foreach import ForEachBlockPass
+from bqskit.utils.random import seed_random_sources
 from bqskit.runtime import get_runtime
+import numpy as np
+from random import getrandbits
 from .clift import best_min_t_count_circuit
 
 
@@ -50,7 +53,8 @@ class ComputeErrorThresholdPass(BasePass):
         num_blocks = len(list(circuit.operations_with_cycles()))
         return num_blocks
 
-async def _run_workflow_on_circuit(workflow, circuit, data):
+async def _run_workflow_on_circuit(seed, workflow, circuit, data):
+    data.seed = seed
     await workflow.run(circuit, data)
     return (circuit, data)
 
@@ -63,8 +67,9 @@ class MultistartPass(BasePass):
     async def run(self, circuit, data={}):
         best_circuit = None
         best_data = None
-        futures = get_runtime().map(_run_workflow_on_circuit, [self.workflow] * self.multistarts, circuit=circuit, data=data)
-        async for _, result in FutureQueue(futures, self.multistarts):
+        futures = get_runtime().map(_run_workflow_on_circuit, [getrandbits(32) for _ in range(self.multistarts)], workflow=self.workflow, circuit=circuit, data=data)
+        random_numbers = []
+        async for i, result in FutureQueue(futures, self.multistarts):
             new_circuit, new_data = result
             if self.comparator(best_circuit, new_circuit):
                 best_circuit = new_circuit
