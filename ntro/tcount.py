@@ -19,45 +19,6 @@ import numpy as np
 import numpy.typing as npt
 
 
-class RelaxedTCountCostGenerator(CostFunctionGenerator):
-    def __init__(self, period: float=np.pi / 4) -> None:
-        """
-        Constructor for RelaxedTCountCostGenerator.
-
-        Args:
-            period (float): The period of the triangle wave cost function.
-                Parameter values will be pushed towards a multiple this
-                (Default: np.pi / 4)
-        """
-        super().__init__()
-        self.period = period
-
-    def gen_cost(
-        self,
-        circuit: Circuit,
-        target: UnitaryMatrix | StateVector,
-    ) -> CostFunction:
-        return RelaxedTCount(self.period)
-
-
-class RelaxedTCount(DifferentiableCostFunction):
-    def __init__(self, period: float) -> None:
-        super().__init__()
-        self.period = period
-
-    def get_cost(self, params: RealVector) -> float:
-        if len(params) < 1:
-            return 0
-        if not isinstance(params, np.ndarray):
-            params = np.array(params)
-        deviation = get_arr(params, self.period)
-        cost = np.sum(deviation)
-        return float(cost)
-
-    def get_grad(self, params: RealVector) -> npt.NDArray[np.float64]:
-        deviation = np.mod(params, self.period) - self.period / 2
-        signs = np.sign(deviation)
-        return -1 * (2 / self.period) * signs
 
 def get_arr(params: np.ndarray, period: float) -> npt.NDArray[np.float64]:
     shifted_params = np.mod(params - period / 2, period)
@@ -283,49 +244,4 @@ class RoundSmallestNResiduals(DifferentiableResidualsFunction):
             #output[i][j] = -1 * (2 / self.period) * signs[j] * 0.5 * np.sin(deviation[j])
             #output[i][j] = -1 * (2 / self.period) * signs[j] * 0.25 * np.sin(deviation[j]) / np.sqrt(0.5 - 0.5 * np.cos(deviation[j]))
         #return np.sqrt(self.dim) * output
-        return self.dim * output
-
-
-class RoundSmallestNResidualsSmoothed(DifferentiableResidualsFunction):
-    def __init__(self, N: int, period: float, dim: int) -> None:
-        super().__init__()
-        self.period = period
-        self.N = N
-        self.dim = dim
-
-    def get_cost(self, params: RealVector) -> float:
-        return np.sum(np.square(self.get_residuals(params)))
-
-    def num_residuals(self) -> float:
-        return self.N
-
-    def get_residuals(self, params: RealVector) -> float:
-        if len(params) < 1 or self.N < 1:
-            return []
-        if not isinstance(params, np.ndarray):
-            params = np.array(params)
-        deviation = get_deviation_arr(params, self.period)
-        #deviation = 1 - np.sqrt(0.5*(1+np.cos(deviation)))
-        deviation = 0.5 - 0.5 * np.cos(deviation)
-        deviation = np.sort(deviation)
-        #return np.sqrt(deviation[:self.N])
-        return self.dim * deviation[:self.N]
-
-    def get_grad(self, params: RealVector) -> npt.NDArray[np.float64]:
-        if self.N < 1:
-            return np.zeros((self.N, len(params)))
-        grad = get_deviation_arr_grad(params, self.period)
-
-        deviation = get_deviation_arr(params, self.period)
-        #sort_dev = 1 - np.sqrt(0.5*(1+np.cos(deviation)))
-        sort_dev = 0.5 - 0.5 * np.cos(deviation)
-        sort_dev = deviation
-        indices = np.argsort(sort_dev)
-
-        output = np.zeros((self.N, len(params)))
-        for i in range(self.N):
-            j = indices[i]
-            #output[i][j] = grad[j]
-            output[i][j] = 0.5 * grad[j] * np.sin(deviation[j])
-            #output[i][j] = -1 * (2 / self.period) * signs[j] * 0.25 * np.sin(deviation[j]) / np.sqrt(0.5 - 0.5 * np.cos(deviation[j]))
         return self.dim * output

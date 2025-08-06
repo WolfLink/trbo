@@ -76,7 +76,7 @@ def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
     return CircuitGate(circuit)
 
 
-def best_min_t_count_circuit(a, b):
+def better_min_t_count_circuit(a, b):
     # if one circuit is None and the other isn't, choose the one that isn't None
     if a is None:
         return True

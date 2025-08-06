@@ -3,9 +3,10 @@ from bqskit.compiler import Workflow
 from bqskit.passes.control.foreach import ForEachBlockPass
 from bqskit.utils.random import seed_random_sources
 from bqskit.runtime import get_runtime
+from bqskit.compiler.workflow import Workflow
 import numpy as np
 from random import getrandbits
-from .clift import best_min_t_count_circuit
+from .clift import better_min_t_count_circuit
 
 
 class FutureQueue:
@@ -26,9 +27,15 @@ class FutureQueue:
         else:
             try:
                 self.queue.extend(await get_runtime().next(self.future))
+                self.remaining -= 1
                 return self.queue.pop(0)
             except RuntimeError:
                 raise StopAsyncIteration
+
+    def cancel(self):
+        get_runtime().cancel(self.future)
+        self.remaining = 0
+        self.queue = []
 
 
 class ComputeErrorThresholdPass(BasePass):
@@ -54,29 +61,63 @@ class ComputeErrorThresholdPass(BasePass):
         return num_blocks
 
 async def _run_workflow_on_circuit(seed, workflow, circuit, data):
+    workflow = Workflow(workflow)
     data.seed = seed
     await workflow.run(circuit, data)
     return (circuit, data)
 
 class MultistartPass(BasePass):
-    def __init__(self, workflow, multistarts=10, circuit_comparator=best_min_t_count_circuit):
+    def __init__(self, workflow, multistarts=10, circuit_comparator=better_min_t_count_circuit, goal_condition=None):
         self.workflow = Workflow(workflow)
         self.multistarts = multistarts
         self.comparator = circuit_comparator
+        self.goal_condition = goal_condition
 
     async def run(self, circuit, data={}):
         best_circuit = None
         best_data = None
         futures = get_runtime().map(_run_workflow_on_circuit, [getrandbits(32) for _ in range(self.multistarts)], workflow=self.workflow, circuit=circuit, data=data)
         random_numbers = []
-        async for i, result in FutureQueue(futures, self.multistarts):
+        
+        attempts = FutureQueue(futures, self.multistarts)
+        async for i, result in attempts:
             new_circuit, new_data = result
             if self.comparator(best_circuit, new_circuit):
                 best_circuit = new_circuit
                 best_data = new_data
+                if self.goal_condition is not None and self.goal_condition(best_circuit):
+                    attempts.cancel()
         circuit.become(best_circuit)
         data.update(best_data)
 
+class SuccessBenchmarkPass(BasePass):
+    def __init__(self, workflow, condition, key="benchmark_success", runs=100):
+        self.workflow = workflow
+        self.condition = condition
+        self.runs = runs
+        self.key = key
+
+    async def run(self, circuit, data={}):
+        futures = get_runtime().map(_run_workflow_on_circuit, [getrandbits(32) for _ in range(self.runs)], workflow=self.workflow, circuit=circuit, data=data)
+        successes = 0
+        failures = 0
+        async for i, result in FutureQueue(futures, self.runs):
+            try:
+                if self.condition(circuit, result):
+                    successes += 1
+                else:
+                    failures += 1
+            except:
+                failures += 1
+
+        if successes + failures != self.runs:
+            print(f"UNEXPECTED: {successes} successes + {failures} failures != {self.runs} expected total.")
+
+        data[self.key] = {
+                "successes" : successes,
+                "failures" : failures,
+                "total" : self.runs,
+                }
 
 class UnwrapForEachPassDown(BasePass):
     async def run(self, circuit, data={}):

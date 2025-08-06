@@ -22,6 +22,13 @@ from bqskit.ir.gates.constant.t import TGate
 from bqskit.ir.gates.constant.h import HGate
 import logging
 
+try:
+    import mpmath
+    from pygridsynth import gridsynth_gates
+    PYGRIDSYNTH_AVAILABLE = True
+except:
+    PYGRIDSYNTH_AVAILABLE = False
+
 from .clift import clifford_gates, t_gates, rz_gates
 
 _logger = logging.getLogger(__name__)
@@ -39,10 +46,20 @@ def get_gridsynth_binary():
 def gridsynth(angle, e=1e-10, pi=False, gridsynth_binary=None):
     angle = angle % 2 if pi else angle % (2 * np.pi)
     anglestr = f"pi*{angle}" if pi else f"{angle}"
-    if gridsynth_binary is None:
-        gridsynth_binary = get_gridsynth_binary()
 
-    resultstr = run([gridsynth_binary, anglestr, "-p", "-e", f"{e}"], capture_output=True, encoding='utf-8').stdout
+    try:
+        # first try using a specified gridsynth binary
+        if gridsynth_binary is None:
+            gridsynth_binary = get_gridsynth_binary()
+        resultstr = run([gridsynth_binary, anglestr, "-p", "-e", f"{e}"], capture_output=True, encoding='utf-8').stdout
+    except:
+        # if that fails, try using pygridsynth
+        if PYGRIDSYNTH_AVAILABLE:
+            mpmath.mp.dps = 128
+            resultstr = gridsynth_gates(mpmath.mpmathify(anglestr), mpmath.mpmathify(f"{e}"))
+        else:
+            raise FileNotFoundError("No gridsynth found, To use GridsynthPass, provide a gridsynth binary as GridsynthPass(gridsynth_binary='<path to binary>') or install pygridsynth with 'pip install pygridsynth'.")
+
 
     str_to_gate = {
             "H" : HGate(),
@@ -85,8 +102,6 @@ class GridsynthPass(BasePass):
         self.threshold = threshold
         self.utry = utry
         self.gridsynth_binary = gridsynth_binary
-        if gridsynth_binary is None:
-            raise FileNotFoundError("A gridsynth binary must be provided to run GridsynthPass.")
         self.retries = retries
         self.preoptimize = preoptimize
        
@@ -125,7 +140,6 @@ class GridsynthPass(BasePass):
         if d >= threshold:
             print(f"Gridsynth failed because the initial circuit is not close enough to the target circuit ({d} > {threshold}) target_type: {target_type
                   }")
-            print(f"WTFDIST: {circuit.get_unitary().get_distance_from(circuit.get_unitary())}")
             return
 
         min_e = (threshold-d) / circuit.num_params
@@ -190,11 +204,3 @@ class GridsynthPass(BasePass):
             print(f"GRIDSYNTH FAILURE at END: {repr(best_dist)} > {repr(threshold)} after {iterations} and {min_e}")
             for entry in GSLOG:
                 print(f"e: {entry[0]}\t->\td: {entry[1]}")
-        #T_counts = np.sum([circuit.gate_counts[gate] for gate in circuit.gate_counts if gate in t_gates])
-        #Rz_counts = circuit.num_params
-        #data["gridsynth_stats"] = {"rz" : Rz_counts, "t" : T_counts, "e" : trial_e, "thresh" : threshold, "d" : best_circuit.get_unitary().get_distance_from(target)}
-        #data["subcircuit_data"] = f"keys: {[key for key in data]}"
-        #data["subcircuit_data"] = f"Circuit {data['subnumbering']}, d is {HilbertSchmidtCostGenerator().gen_cost(circuit, target)(circuit.params)} T: {T_counts} iter: {iterations} {min_e}/{min_d} < {max_e}/{max_d}"
-        #data["subcircuit_data"] = f"Circuit {data['subnumbering']}\t{iterations}\t{best_dist}\t<\t{threshold}\t{min_e}/{min_d}\t<\t{max_e}/{max_d}"
-        #data["subcircuit_data"] = f"Circuit {data['subnumbering']}, 1iter: {iter_1} iter: {iterations} {min_e} < {e} < {max_e}, {log_params}"
-
