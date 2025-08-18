@@ -11,6 +11,7 @@ from .clift import better_min_t_count_circuit
 
 class FutureQueue:
     def __init__(self, future, length):
+        self._cancelled = False
         self.future = future
         self.queue = []
         self.remaining = length
@@ -33,9 +34,9 @@ class FutureQueue:
                 raise StopAsyncIteration
 
     def cancel(self):
-        get_runtime().cancel(self.future)
-        self.remaining = 0
-        self.queue = []
+        if not self._cancelled:
+            self._cancelled = True
+            get_runtime().cancel(self.future)
 
 
 class ComputeErrorThresholdPass(BasePass):
@@ -153,3 +154,31 @@ class LogErrorPass(BasePass):
         self.title = title
     async def run(self, circuit, data):
         print(f"{self.title}: {data.error}")
+
+class SetDataPass(BasePass):
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value
+
+    async def run(self, circuit, data):
+        data[self.key] = self.value
+
+class AppendGatePass(BasePass):
+    def __init__(self, gate, location=None):
+        self.gate = gate
+        if location is None:
+            location = [0]
+        self.location = location
+
+    async def run(self, circuit, data):
+        circuit.append_gate(self.gate, self.location)
+        return circuit
+
+class RemoveGatePass(BasePass):
+    def __init__(self, target_gate_type):
+        self.target_gate_type = target_gate_type
+
+    async def run(self, circuit, data):
+        circuit.remove_all(self.target_gate_type)
+        return circuit
+

@@ -48,9 +48,10 @@ class MultiStartMinimization(Instantiater):
     def __init__(self,
         cost_gen: CostGen = HilbertSchmidtCostGenerator(),
         threshold: float | NoneType = None,
-        multistarts: int = 32,
-        second_pass: int = 0,
+        multistarts: int = 1,
+        second_pass: int | NoneType = None,
         minimizer: Minimizer = LBFGSMinimizer(),
+        judgement_cost = None,
         **kwargs: dict[str, Any],
     ) -> None:
         """
@@ -58,9 +59,10 @@ class MultiStartMinimization(Instantiater):
         self.cost_gen = cost_gen
         self.threshold = threshold
         self.multistarts = multistarts
-        self.multistarts = 16
         self.minimizer = minimizer
         self.second_pass = second_pass
+        self.judgement_cost = None
+        self.debug = False
 
     def is_capable(self, circuit: Circuit) -> bool:
         """
@@ -84,7 +86,7 @@ class MultiStartMinimization(Instantiater):
         a = a % (np.pi * 2)
         b = b % (np.pi * 2)
         d = np.sum(np.abs(a - b))
-        return d < 1e-3
+        return False
 
     async def multi_start_instantiate_async(
         self,
@@ -111,44 +113,55 @@ class MultiStartMinimization(Instantiater):
             starts = RandomStartGenerator().gen_starting_points(num_starts, circuit, target)
         elif len(starts) < num_starts:
             starts.extend(RandomStartGenerator().gen_starting_points(num_starts - len(starts), circuit, target))
+        elif len(starts) > num_starts:
+            num_starts = len(starts)
 
         # first pass - find solutions that minimize distance
-
-        result_future = get_runtime().map(
-                run_minimization,
-                [circuit] * num_starts,
-                [CeresMinimizer()] * num_starts,
-                [HilbertSchmidtResidualsGenerator()] * num_starts,
-                [target] * num_starts,
-                starts
-                )
-
-        gathered_results = []
-        first_pass_cost = HilbertSchmidtCostGenerator().gen_cost(circuit, target)
-        if self.second_pass >= 1:
-            quota = self.second_pass
+        succeeded = 0
+        if self.second_pass is None:
+            gathered_results = starts
         else:
-            quota = num_starts
+            result_future = get_runtime().map(
+                    run_minimization,
+                    [circuit] * num_starts,
+                    [CeresMinimizer()] * num_starts,
+                    [HilbertSchmidtResidualsGenerator()] * num_starts,
+                    [target] * num_starts,
+                    starts
+                    )
 
-        async for index, result in FutureQueue(result_future, num_starts):
-            if self.threshold is not None and first_pass_cost(result) >= self.threshold:
-                continue
-            found_match = False
-            for other in gathered_results:
-                if self.check_similarity(result, other):
-                    found_match = True
-                    break
-            if found_match:
-                continue
-            gathered_results.append(result)
-            if len(gathered_results) > quota:
-                break
-        get_runtime().cancel(result_future)
+            gathered_results = []
+            first_pass_cost = HilbertSchmidtCostGenerator().gen_cost(circuit, target)
+            if self.second_pass >= 1:
+                quota = self.second_pass
+            else:
+                quota = num_starts
+            
+            queue = FutureQueue(result_future, num_starts)
+            async for index, result in queue:
+                if self.threshold is not None and first_pass_cost(result) >= self.threshold:
+                    continue
+                succeeded += 1
+                found_match = False
+                for other in gathered_results:
+                    if self.check_similarity(result, other):
+                        found_match = True
+                        break
+                if found_match:
+                    continue
+                gathered_results.append(result)
+                if len(gathered_results) > quota:
+                    queue.cancel()
 
         # second pass - find solutions that minimize the cost
         num_starts = len(gathered_results)
+        if self.debug:
+            print(f"{succeeded}/{self.multistarts} -> {num_starts}/{self.second_pass}")
         if num_starts == 0:
-            raise RuntimeError(f"Did not find any suitable first-pass results.")
+            # First pass failed. Generally, this should never happen,
+            # Because we know at least one set of parameters that should pass the threshold.
+            raise RuntimeError("First Pass Failed!")
+            return circuit
 
         result_future = get_runtime().map(
                 run_minimization,
@@ -158,10 +171,14 @@ class MultiStartMinimization(Instantiater):
                 [target] * num_starts,
                 gathered_results,
                 )
-
-        cost = self.cost_gen.gen_cost(circuit, target)
+        
+        if self.judgement_cost is None:
+            cost = self.cost_gen.gen_cost(circuit, target)
+        else:
+            cost = self.judgement_cost.gen_cost(circuit, target)
         best_result = circuit.params
         best_cost = cost.get_cost(circuit.params)
+        best_cost = None
         async for index, result in FutureQueue(result_future, num_starts):
             distance = cost.get_cost(result)
             if best_cost is None or distance < best_cost:

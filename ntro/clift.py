@@ -16,6 +16,25 @@ from bqskit.ir.gates import XGate
 from bqskit.ir.gates import YGate
 from bqskit.ir.gates import ZGate
 
+from bqskit.ir.gates.qubitgate import QubitGate
+from bqskit.qis.unitary.differentiable import DifferentiableUnitary
+from bqskit.utils.cachedclass import CachedClass
+from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
+
+class GlobalPhaseGate(QubitGate, DifferentiableUnitary, CachedClass):
+    _num_qudits = 1
+    _num_params = 1
+    _qasm_name = "identity1"
+
+    def get_unitary(self, params):
+        p = np.exp(1j * params[0])
+        return UnitaryMatrix([[p, 0],[0,p]])
+
+    def get_grad(self, params):
+        dp = 1j * np.exp(1j * params[0])
+        return np.array([[[dp, 0],[0,dp]]], dtype='complex128')
+
+
 
 clifford_gates = [
     CNOTGate(),
@@ -28,6 +47,7 @@ clifford_gates = [
     XGate(),
     YGate(),
     ZGate(),
+    GlobalPhaseGate(),
 ]
 
 t_gates = [TGate(), TdgGate()] 
