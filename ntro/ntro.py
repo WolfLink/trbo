@@ -44,7 +44,7 @@ class NumericalTReductionPass(BasePass):
         self,
         success_threshold: float = 1e-6,
         multistarts: int = 32,
-        backup: bool = False,
+        second_pass_starts: int | nonetype = None,
         target_periods = None,
         target_gates = None,
         **kwargs,
@@ -58,7 +58,7 @@ class NumericalTReductionPass(BasePass):
         """
         self.success_threshold = success_threshold
         self.extra_kwargs = kwargs
-        self.backup = backup
+        self.second_pass_starts = second_pass_starts
 
         self.acceptable_gates = clifford_gates + t_gates + rz_gates
         if target_periods is None:
@@ -82,13 +82,17 @@ class NumericalTReductionPass(BasePass):
                 blacklisted_indices.extend([i + op_index for i in range(len(op.params))])
             op_index += len(op.params)
 
+        ms1 = self.multistarts
+        ms2 = self.second_pass_starts
+        if ms2 is None:
+            ms2 = ms1 // 2
+            ms2 = max(1, ms2)
+
         d_gen = MatrixDistanceCostGenerator()
         d_res = HilbertSchmidtResidualsGenerator()
         best_params = circuit.params
         best_N = 0
         first_min = CeresMinimizer()
-        best_params = circuit.params
-        known_good_params = [best_params]
 
         high = len(circuit.params)
         low = 0
@@ -115,57 +119,23 @@ class NumericalTReductionPass(BasePass):
             # When those good parameters don't work, we need to search for new ones.
             # Starting near the "good guesses" is a great place to start.
             if score >= threshold:
-                miser = MultiStartMinimization(sum_res, multistarts=1, minimizer=CeresMinimizer(), second_pass=None, judgement_cost=sum_gen)
+                miser = MultiStartMinimization(sum_res, multistarts=2, minimizer=CeresMinimizer(), second_pass=None, judgement_cost=sum_gen)
                 result = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params, circuit.params])
-                #r1 = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params])
-                #p1 = r1.params
-                #r2 = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[circuit.params])
-                #p2 = r2.params
-                #
-                #s1 = get_score(p1)
-                #s2 = get_score(p2)
-                #
-                #print_chose = False
-
-                #if s1 > s2:
-                #    trial_params = p2
-                #else:
-                #    trial_params = p1
-
-                #result = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params, np.zeros_like(circuit.params)])
                 score = get_score(trial_params)
-            #score = threshold * 10
+
             # Sometimes its truly necessary to search new territory, so we now use random starting points.
             if score >= threshold:
-                miser = MultiStartMinimization(sum_res, multistarts=32, minimizer=CeresMinimizer(), second_pass=16, threshold=threshold, judgement_cost=sum_gen)
+                miser = MultiStartMinimization(sum_res, multistarts=ms1, minimizer=CeresMinimizer(), second_pass=ms2, threshold=threshold, judgement_cost=sum_gen)
                 result = await miser.multi_start_instantiate_async(trial_circuit, target)
-                #trial_params = CeresMinimizer().minimize(sum_res.gen_cost(circuit, target), best_params)
                 trial_params = result.params
-                #score = n_gen.gen_cost(trial_circuit, target)(trial_params) + trial_circuit.get_unitary(trial_params).get_distance_from(target)
                 score = get_score(trial_params)
-                if score < threshold:
-                    known_good_params.append(trial_params)
 
-            if score >= threshold and score < threshold * 10 and False:
+            if score >= threshold and score < threshold * 10:
                 # try a fine-tuning approach to see if we can squeeze out enough improvement to pass the threshold
                 old_score = score
                 fine_tuner = LBFGSMinimizer()
                 trial_params = fine_tuner.minimize(sum_gen.gen_cost(circuit, target), trial_params)
                 score = get_score(trial_params)
-                if old_score <= score:
-                    print(f"Fine-Tuning didn't help: {old_score} < {score}")
-                elif score < threshold:
-                    print(f"Fine-Tuning Worked: {score}")
-                else:
-                    print(f"Fine-Tuning Failed: {score}")
-
-            #if score >= threshold and False:
-            #    miser = MultiStartMinimization(sum_res, self.success_threshold, multistarts=1, minimizer=CeresMinimizer())
-            #    #miser = MultiStartMinimization(sum_gen, self.success_threshold, multistarts=16)
-            #    result = await miser.multi_start_instantiate_async(trial_circuit, target)
-            #    trial_params = result.params
-            #    #score = sum_gen.gen_cost(trial_circuit, target)(trial_params)
-            #    score = n_gen.gen_cost(trial_circuit, target)(trial_params) + trial_circuit.get_unitary(trial_params).get_distance_from(target)
 
                 # after all that trying to get a good result, we ultimately have to give up if we still don't have an acceptable result
             if score >= threshold:
@@ -177,13 +147,15 @@ class NumericalTReductionPass(BasePass):
                     best_N = N
  
         if best_N == 0:
-            #print("best N: 0")
+            # we failed to find any improvement
             return
+
+        # We have identified a set of parameters that allows N Rz gates to be rounded
+        # Now its time to go actually replace those Rz gates with Clifford+T circuits
         best_circuit = circuit.copy()
         best_circuit.set_params(best_params)
         best_sum = RoundSmallestNCostGenerator(best_N, period).gen_cost(best_circuit, target)(best_params)
         best_dist = best_circuit.get_unitary().get_distance_from(target)
-        #print(f"best N: {best_N} score: {best_sum + best_dist} dist: {best_dist} thresh: {threshold}")
         for i in range(best_N):
             if len(best_circuit.params) < 1:
                 break
@@ -207,15 +179,10 @@ class NumericalTReductionPass(BasePass):
                 test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(trial_circuit, target), trial_circuit.params)
                 trial_circuit.set_params(test_params)
             if trial_circuit.get_unitary().get_distance_from(target) >= threshold:
-                #print(f"deletion {i}\testimate: {(get_deviation_arr(best_circuit.params, period))[index] + best_dist}\tactual: {trial_circuit.get_unitary().get_distance_from(target)} threshold: {threshold}")
+                # we failed to round as much as expected
+                # generally if this happens, its indicative of a bug
                 break
-            #test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(trial_circuit, target), trial_circuit.params)
-            #if d_gen.gen_cost(trial_circuit, target)(test_params) >= self.success_threshold:
-            #    print(f"Problem with rounding {i}")
-            #    break
-            #else:
             best_circuit = trial_circuit
-        #print(f"opt  N: {best_N} score: {best_sum + best_dist} dist: {best_circuit.get_unitary().get_distance_from(target)}")
         test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(best_circuit, target), best_circuit.params)
         if best_circuit.get_unitary(test_params).get_distance_from(target) < best_circuit.get_unitary().get_distance_from(target):
             best_circuit.set_params(test_params)
@@ -237,7 +204,6 @@ class NumericalTReductionPass(BasePass):
             if result is not None:
                 result.unfold_all()
                 candidate_circuit = result
-        #candidate_circuit.unfold_all()
         return candidate_circuit
 
 
@@ -252,10 +218,8 @@ class NumericalTReductionPass(BasePass):
 
         if "utry" not in data:
             utry = circuit.get_unitary()
-            data["utry"] = utry
         else:
             utry = data["utry"]
-            #u2 = circuit.get_unitary()
 
         if "adjusted_threshold" in data:
             threshold = data["adjusted_threshold"]
@@ -265,8 +229,11 @@ class NumericalTReductionPass(BasePass):
         initial_circuit = circuit
         initial_circuit.unfold_all()
         candidate_circuit = initial_circuit
+
+        # perform the optimization
         candidate_circuit = await self.optimize_all_periods(initial_circuit, utry, circuit.params, threshold)
-        # TODO cleanup
+
+        # verify that the optimization improved the circuit before accepting the new circuit
         if better_min_t_count_circuit(initial_circuit, candidate_circuit):
             circuit.become(candidate_circuit)
         else:
