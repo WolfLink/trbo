@@ -87,7 +87,7 @@ class NumericalTReductionPass(BasePass):
         best_params = circuit.params
         best_N = 0
         first_min = CeresMinimizer()
-        best_params = np.zeros_like(circuit.params)
+        best_params = circuit.params
         known_good_params = [best_params]
 
         high = len(circuit.params)
@@ -106,40 +106,38 @@ class NumericalTReductionPass(BasePass):
             #   2. The original circuit parameters
             # Often one of these sets of parameters will just work, allowing us to skip optimization.
 
-            for params in known_good_params:
-                trial_params = params
+            trial_params = best_params
+            score = get_score(trial_params)
+            if score >= threshold:
+                trial_params = circuit.params
                 score = get_score(trial_params)
-                if score < threshold:
-                    break
 
             # When those good parameters don't work, we need to search for new ones.
             # Starting near the "good guesses" is a great place to start.
-            if score >= threshold and False:
+            if score >= threshold:
                 miser = MultiStartMinimization(sum_res, multistarts=1, minimizer=CeresMinimizer(), second_pass=None, judgement_cost=sum_gen)
-                #result = await miser.multi_start_instantiate_async(trial_circuit, target, starts=known_good_params)
-                r1 = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params])
-                p1 = r1.params
-                r2 = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[circuit.params])
-                p2 = r2.params
-                
-                s1 = get_score(p1)
-                s2 = get_score(p2)
-                
-                print_chose = False
+                result = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params, circuit.params])
+                #r1 = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params])
+                #p1 = r1.params
+                #r2 = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[circuit.params])
+                #p2 = r2.params
+                #
+                #s1 = get_score(p1)
+                #s2 = get_score(p2)
+                #
+                #print_chose = False
 
-                if s1 > s2:
-                    trial_params = p2
-                else:
-                    trial_params = p1
+                #if s1 > s2:
+                #    trial_params = p2
+                #else:
+                #    trial_params = p1
 
                 #result = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params, np.zeros_like(circuit.params)])
                 score = get_score(trial_params)
-            score = threshold * 10
+            #score = threshold * 10
             # Sometimes its truly necessary to search new territory, so we now use random starting points.
             if score >= threshold:
-                miser = MultiStartMinimization(sum_res, multistarts=16, minimizer=CeresMinimizer(), second_pass=4, threshold=threshold, judgement_cost=sum_gen)
-                if N == 43:
-                    miser.debug = True
+                miser = MultiStartMinimization(sum_res, multistarts=32, minimizer=CeresMinimizer(), second_pass=16, threshold=threshold, judgement_cost=sum_gen)
                 result = await miser.multi_start_instantiate_async(trial_circuit, target)
                 #trial_params = CeresMinimizer().minimize(sum_res.gen_cost(circuit, target), best_params)
                 trial_params = result.params
