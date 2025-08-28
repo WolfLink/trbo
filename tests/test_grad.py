@@ -5,6 +5,7 @@ from bqskit.passes import SetModelPass
 from bqskit.ir.gates.constant.cx import CNOTGate as CXG
 from bqskit.ir.gates.constant.sx import SXGate as SXG
 from bqskit.ir.gates.parameterized.rz import RZGate as RZG
+from bqskit.ir.opt.cost import HilbertSchmidtCostGenerator, HilbertSchmidtResidualsGenerator
 from bqskit.ir.gate import Gate
 from bqskit.compiler.machine import MachineModel
 
@@ -14,7 +15,7 @@ import numpy as np
 
 import ntro
 from ntro.ntro import *
-from ntro import gridsynth
+from ntro.tcount import *
 import pytest
 
 
@@ -33,30 +34,31 @@ def check_grad(circuit, target, cost_gen):
     total_report = np.sum(np.square(np.array(grad_an) - np.array(grad_num)))
     return total_report
 
-def qft(n):
-    # this is the qft unitary generator code from qsearch
-    root = np.e ** (2j * np.pi / n)
-    return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n))) / np.sqrt(n)
 
-# example: qft circuit
-q = 2
-U = qft(2**q)
-U_S = np.array([[1, 0], [0, 1j]], dtype='complex128')
-#q = 2
-start = timer()
-#model = MachineModel
-gateset = set([CXG(), SXG(), RZG()])
-synthesized_circuit = compile(U, max_synthesis_size = q, model=MachineModel(q, gate_set=gateset))
-print(synthesized_circuit.gate_counts)
-print(np.shape(synthesized_circuit.get_unitary()))
-print(np.shape(U))
-print(synthesized_circuit.get_unitary().get_distance_from(U))
-print(f"Synthesis took {timer() - start}s")
+toffoli_u = [
+    [1, 0, 0, 0, 0, 0, 0, 0],
+    [0, 1, 0, 0, 0, 0, 0, 0],
+    [0, 0, 1, 0, 0, 0, 0, 0],
+    [0, 0, 0, 1, 0, 0, 0, 0],
+    [0, 0, 0, 0, 1, 0, 0, 0],
+    [0, 0, 0, 0, 0, 1, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 1],
+    [0, 0, 0, 0, 0, 0, 1, 0],
+]
+toffoli_u = np.array(toffoli_u, dtype='complex128')
 
+toffoli_qasm_file = "synthesized_toffoli.qasm"
+toffoli_c = Circuit.from_file(toffoli_qasm_file)
 
-
-from ntro.tcount import MatrixDistanceCost, MatrixDistanceCostGenerator
-def test_MatrixDistanceCost_grad():
-    report = check_grad(synthesized_circuit, U, MatrixDistanceCostGenerator())
-    print(report)
+@pytest.mark.parametrize("cost_function_generator", [
+    MatrixDistanceCostGenerator(),
+    RoundSmallestNCostGenerator(10),
+    RoundSmallestNResidualsGenerator(10),
+    SumCostGenerator(MatrixDistanceCostGenerator(), RoundSmallestNCostGenerator(10)),
+    SumCostGenerator(HilbertSchmidtCostGenerator(), RoundSmallestNCostGenerator(10)),
+    SumResidualsGenerator(HilbertSchmidtResidualsGenerator(), RoundSmallestNResidualsGenerator(10)),
+    ])
+def test_grad(cost_function_generator):
+    report = check_grad(toffoli_c, toffoli_u, cost_function_generator)
     assert report < 1e-5
+
