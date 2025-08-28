@@ -73,6 +73,9 @@ def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=False
         passes = sanitize_gateset() + passes
     return passes
 
+def fast():
+    return default(16, 4)
+
 def slow():
     return default(64, 6)
 

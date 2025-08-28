@@ -10,7 +10,6 @@ from bqskit.ir.gate import Gate
 from bqskit.compiler.machine import MachineModel
 
 from timeit import default_timer as timer
-from tqdm import tqdm
 import numpy as np
 
 import ntro

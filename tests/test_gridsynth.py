@@ -4,7 +4,13 @@ from ntro.clift import clifford_gates, t_gates, rz_gates
 from bqskit import Circuit
 from bqskit.compiler import Compiler
 from bqskit.ir.gates import RZGate
+try:
+    import pygridsynth
+    pygridsynth_installed = True
+except:
+    pygridsynth_installed = False
 
+@pytest.mark.skipif(not pygridsynth_installed, reason="pygridsynth is not installed")
 def test_gridsynth_pass():
     before_circuit = Circuit(1)
     before_circuit.append_gate(RZGate(), 0)
