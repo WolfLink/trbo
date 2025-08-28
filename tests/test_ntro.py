@@ -111,7 +111,7 @@ if __name__ == "__main__":
                         ),
                     ]),
                 UnfoldPass(),
-                #AppendGatePass(GlobalPhaseGate()),
+                AppendGatePass(GlobalPhaseGate()),
                 #SetDataPass("utry", toffoli_u),
                 NumericalTReductionPass(),
                 RemoveGatePass(GlobalPhaseGate()),
