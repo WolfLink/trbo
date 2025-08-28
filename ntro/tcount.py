@@ -195,7 +195,7 @@ class RoundSmallestNCost(DifferentiableCostFunction):
 
 
 class RoundSmallestNResidualsGenerator(CostFunctionGenerator):
-    def __init__(self, N: int, period: float, blacklist=None) -> None:
+    def __init__(self, N: int, period: float = np.pi/4, blacklist=None) -> None:
         super().__init__()
         self.period = period
         self.N = N
