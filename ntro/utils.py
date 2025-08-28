@@ -4,6 +4,7 @@ from bqskit.passes.control.foreach import ForEachBlockPass
 from bqskit.utils.random import seed_random_sources
 from bqskit.runtime import get_runtime
 from bqskit.compiler.workflow import Workflow
+from bqskit.passes.control.predicate import PassPredicate
 import numpy as np
 from random import getrandbits
 from .clift import better_min_t_count_circuit
@@ -37,6 +38,15 @@ class FutureQueue:
         if not self._cancelled:
             self._cancelled = True
             get_runtime().cancel(self.future)
+
+class HasGateSetPredicate(PassPredicate):
+    """Predicate that returns true if all gates are in the specified gateset."""
+
+    def __init__(self, gateset):
+        self.gateset = gateset
+
+    def get_truth_value(self, circuit, data):
+        return all(g in self.gateset for g in circuit.gate_set)
 
 
 class ComputeErrorThresholdPass(BasePass):

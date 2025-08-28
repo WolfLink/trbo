@@ -18,11 +18,12 @@ from ntro.clift import circuit_for_rounded_val
 from ntro.clift import clifford_gates
 from ntro.clift import t_gates
 from ntro.clift import rz_gates
+from ntro.clift import GlobalPhaseGate
 from ntro.clift import better_min_t_count_circuit
 from ntro.utils import FutureQueue
 
 from ntro.multi_start_minimization import MultiStartMinimization
-from ntro.tcount import get_arr, get_deviation_arr
+from ntro.tcount import get_deviation_arr
 from ntro.tcount import SumCostGenerator
 from ntro.tcount import RoundSmallestNCostGenerator
 from ntro.tcount import SumResidualsGenerator
@@ -73,14 +74,19 @@ class NumericalTReductionPass(BasePass):
         if threshold is None:
             threshold = self.success_threshold
 
-        blacklisted_indices = []
-        op_index = 0
-        for cycle, op in circuit.operations_with_cycles():
-            if len(op.params) < 1:
-                continue
-            if op.gate not in rz_gates:
-                blacklisted_indices.extend([i + op_index for i in range(len(op.params))])
-            op_index += len(op.params)
+        def gen_blacklist(circuit):
+            blacklisted_indices = []
+            op_index = 0
+            for cycle, op in circuit.operations_with_cycles():
+                if len(op.params) < 1:
+                    continue
+                if op.gate not in rz_gates:
+                    blacklisted_indices.extend([i + op_index for i in range(len(op.params))])
+                op_index += len(op.params)
+            blacklist = np.zeros_like(circuit.params)
+            for i in blacklisted_indices:
+                blacklist[i] = 1
+            return blacklist
 
         ms1 = self.multistarts
         ms2 = self.second_pass_starts
@@ -98,8 +104,9 @@ class NumericalTReductionPass(BasePass):
         low = 0
         while low <= high:
             N = low + (high - low) // 2
-            n_gen = RoundSmallestNCostGenerator(N, period)
-            n_res = RoundSmallestNResidualsGenerator(N, period, smoothed=False)
+            blacklist = gen_blacklist(trial_circuit)
+            n_gen = RoundSmallestNCostGenerator(N, period, blacklist=blacklist)
+            n_res = RoundSmallestNResidualsGenerator(N, period, blacklist=blacklist)
             sum_gen = SumCostGenerator(d_gen, n_gen)
             sum_res = SumResidualsGenerator(d_res, n_res)
             def get_score(x):
@@ -154,13 +161,13 @@ class NumericalTReductionPass(BasePass):
         # Now its time to go actually replace those Rz gates with Clifford+T circuits
         best_circuit = circuit.copy()
         best_circuit.set_params(best_params)
-        best_sum = RoundSmallestNCostGenerator(best_N, period).gen_cost(best_circuit, target)(best_params)
+        best_sum = RoundSmallestNCostGenerator(best_N, period, blacklist=gen_blacklist(best_circuit)).gen_cost(best_circuit, target)(best_params)
         best_dist = best_circuit.get_unitary().get_distance_from(target)
         for i in range(best_N):
             if len(best_circuit.params) < 1:
                 break
             trial_circuit = best_circuit
-            index = np.argmin(get_deviation_arr(trial_circuit.params, period))
+            index = np.argmin(get_deviation_arr(trial_circuit.params, period, gen_blacklist(trial_circuit)))
             trial_circuit = best_circuit.copy()
             op_index = 0
             for cycle, op in trial_circuit.operations_with_cycles():
@@ -170,17 +177,21 @@ class NumericalTReductionPass(BasePass):
                 if op.gate not in rz_gates:
                     continue
                 if op_index > index:
-                    rounded = circuit_for_rounded_val(op.params[0], period < np.pi * 0.5)
-                    trial_circuit.replace_gate(
-                        (cycle, op.location[0]), rounded, op.location
-                    )
-                    break
+                    if op.gate in rz_gates:
+                        rounded = circuit_for_rounded_val(op.params[0], period < np.pi * 0.5)
+                        trial_circuit.replace_gate(
+                            (cycle, op.location[0]), rounded, op.location
+                        )
+                        break
+                    else:
+                        raise RuntimeError("Attempted to round unexpected gate type {op.gate}")
             if trial_circuit.get_unitary().get_distance_from(target) >= threshold:
                 test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(trial_circuit, target), trial_circuit.params)
                 trial_circuit.set_params(test_params)
             if trial_circuit.get_unitary().get_distance_from(target) >= threshold:
                 # we failed to round as much as expected
                 # generally if this happens, its indicative of a bug
+                raise RuntimeWarning("Failed to round as many gates as expected.")
                 break
             best_circuit = trial_circuit
         test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(best_circuit, target), best_circuit.params)

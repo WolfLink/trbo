@@ -21,7 +21,9 @@ from bqskit.qis.unitary.differentiable import DifferentiableUnitary
 from bqskit.utils.cachedclass import CachedClass
 from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
 
+
 class GlobalPhaseGate(QubitGate, DifferentiableUnitary, CachedClass):
+    """GlobalPhaseGate is the identity but with a global phase. It doesn't represent a physical gate (or rather, it represents a noop, like the identity), but its inclusion in a circuit allows a matrix distance function that is global phase dependent to find solutions that don't have a global phase match."""
     _num_qudits = 1
     _num_params = 1
     _qasm_name = "identity1"
@@ -35,6 +37,7 @@ class GlobalPhaseGate(QubitGate, DifferentiableUnitary, CachedClass):
         return np.array([[[dp, 0],[0,dp]]], dtype='complex128')
 
 
+# These three lists are used as the definition of what we mean by Clifford, T, and Rz gates throughout the code
 
 clifford_gates = [
     CNOTGate(),
@@ -55,14 +58,16 @@ t_gates = [TGate(), TdgGate()]
 rz_gates = [RZGate()]
 
 
+
+
 def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
     """
-    Returns a CircuitGate with a {Z, S, Sdg, T, Tdg} depending on val.
+    Returns a CircuitGate with in the {Z, S, Sdg, T, Tdg} gateset depending on val.
     
     Args:
         val (float): A parameter value to round.
 
-        period (float): The period of the rounding function.
+        period (float): The period of the rounding function. (either pi/2 or pi/4)
     
     Returns:
         (CircuitGate): A CircuitGate containing a Z rotation gate depending
@@ -97,6 +102,18 @@ def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
 
 
 def better_min_t_count_circuit(a, b):
+    """Returns True if circuit b is a "better" circuit than circuit a, and False otherwise.
+
+    Circuit b is considered "better" based on the following criteria:
+    1. Any circuit is better than None
+    2. Fewer gates outside of Clifford+T+Rz is better
+    3. Fewer Rz gates is better
+    4. Fewer T gates is better
+    5. Fewer multi-qubit gates is better
+    6. Fewer Clifford gates is better
+    7. Ties that persist are given to circuit a (returns False)
+    """
+
     # if one circuit is None and the other isn't, choose the one that isn't None
     if a is None:
         return True
