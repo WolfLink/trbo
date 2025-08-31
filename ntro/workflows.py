@@ -5,7 +5,7 @@ from .utils import HasGateSetPredicate, AppendGatePass, RemoveGatePass, SetDataP
 from .ntro import NumericalTReductionPass
 
 
-def sanitize_gateset():
+def sanitize_gateset(synthesize_size=3):
     """Converts a circuit to Clifford + T + Rz."""
     return [
             UnfoldPass(),
@@ -20,7 +20,7 @@ def sanitize_gateset():
             IfThenElsePass(
                 HasGateSetPredicate(clifford_gates + t_gates + rz_gates),
                 NOOPPass(),
-                [QuickPartitioner(3),
+                [QuickPartitioner(synthesize_size),
                  ForEachBlockPass([
                      IfThenElsePass(
                          HasGateSetPredicate(clifford_gates + t_gates + rz_gates),
