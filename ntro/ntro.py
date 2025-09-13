@@ -163,37 +163,23 @@ class NumericalTReductionPass(BasePass):
         best_circuit.set_params(best_params)
         best_sum = RoundSmallestNCostGenerator(best_N, period, blacklist=gen_blacklist(best_circuit)).gen_cost(best_circuit, target)(best_params)
         best_dist = best_circuit.get_unitary().get_distance_from(target)
-        for i in range(best_N):
-            if len(best_circuit.params) < 1:
-                break
-            trial_circuit = best_circuit
-            index = np.argmin(get_deviation_arr(trial_circuit.params, period, gen_blacklist(trial_circuit)))
-            trial_circuit = best_circuit.copy()
-            op_index = 0
-            for cycle, op in trial_circuit.operations_with_cycles():
-                op_index += len(op.params)
-                if len(op.params) != 1:
-                    continue
-                if op.gate not in rz_gates:
-                    continue
-                if op_index > index:
-                    if op.gate in rz_gates:
-                        rounded = circuit_for_rounded_val(op.params[0], period < np.pi * 0.5)
-                        trial_circuit.replace_gate(
-                            (cycle, op.location[0]), rounded, op.location
-                        )
-                        break
-                    else:
-                        raise RuntimeError("Attempted to round unexpected gate type {op.gate}")
-            if trial_circuit.get_unitary().get_distance_from(target) >= threshold:
-                test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(trial_circuit, target), trial_circuit.params)
-                trial_circuit.set_params(test_params)
-            if trial_circuit.get_unitary().get_distance_from(target) >= threshold:
-                # we failed to round as much as expected
-                # generally if this happens, its indicative of a bug
-                raise RuntimeWarning("Failed to round as many gates as expected.")
-                break
-            best_circuit = trial_circuit
+
+        indices = np.argsort(get_deviation_arr(best_circuit.params, period, gen_blacklist(best_circuit))) + 1
+        op_index = 0
+        for cycle, op in best_circuit.operations_with_cycles():
+            op_index += len(op.params)
+            if len(op.params) != 1:
+                continue
+            if op.gate not in rz_gates:
+                continue
+            if op_index in indices[:best_N]:
+                if op.gate in rz_gates:
+                    rounded = circuit_for_rounded_val(op.params[0], period < np.pi * 0.5)
+                    best_circuit.replace_gate(
+                        (cycle, op.location[0]), rounded, op.location
+                    )
+                else:
+                    raise RuntimeError("Attempted to round unexpected gate type {op.gate}")
         test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(best_circuit, target), best_circuit.params)
         if best_circuit.get_unitary(test_params).get_distance_from(target) < best_circuit.get_unitary().get_distance_from(target):
             best_circuit.set_params(test_params)
