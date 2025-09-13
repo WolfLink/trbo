@@ -44,17 +44,24 @@ class MatrixDistanceCost(DifferentiableCostFunction):
         U = self.target
         M, J = self.circuit.get_unitary_and_grad(params)
 
-        S = np.sum(np.multiply(U, np.conj(M)))
+        P = np.multiply(U, np.conj(M))
+        S = np.sum(np.array(P))
         JU = np.array([np.multiply(U,np.conj(K)) for K in J])
         JUS = np.sum(JU, axis=(1,2))
-        dem = M.dim
-        frac = min(np.abs(S) / dem, 1)
+        try:
+            dem = M.dim
+            frac = min(np.abs(S) / dem, 1)
 
-        p1 = -(frac ** (self.degree - 1))
-        p2 = np.power(1 - (frac ** self.degree), (1.0 / self.degree) - 1.0)
-        p3 = (np.real(S)*np.real(JUS) + np.imag(S)*np.imag(JUS)) / (U.shape[0] * np.abs(S))
+            p1 = -(frac ** (self.degree - 1))
+            p2 = np.power(1 - (frac ** self.degree), (1.0 / self.degree) - 1.0)
+            p3 = (np.real(S)*np.real(JUS) + np.imag(S)*np.imag(JUS)) / (U.shape[0] * np.abs(S))
 
-        return p1 * p2 * p3
+            return p1 * p2 * p3
+        except (RuntimeError, FloatingPointError, ZeroDivisionError, OverflowError):
+            if np.isclose(S, 0):
+                return 0 * JUS
+            else:
+                raise
 
 
 class SumCostGenerator(CostFunctionGenerator):
