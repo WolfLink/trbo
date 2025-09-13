@@ -8,6 +8,7 @@ from bqskit.passes.control.predicate import PassPredicate
 import numpy as np
 from random import getrandbits
 from .clift import better_min_t_count_circuit
+import time
 
 
 class FutureQueue:
@@ -129,6 +130,34 @@ class SuccessBenchmarkPass(BasePass):
                 "failures" : failures,
                 "total" : self.runs,
                 }
+
+async def _run_or_sleep(sleep, workflow, circuit, data):
+    if sleep > 0:
+        time.sleep(sleep)
+        data["slept"] = sleep
+        return (circuit, data)
+    else:
+        workflow = Workflow(workflow)
+        await workflow.run(circuit, data)
+        return (circuit, data)
+
+class TimeoutPass(BasePass):
+    def __init__(self, timeout, workflow):
+        self.timeout = timeout
+        self.workflow = workflow
+
+    async def run(self, circuit, data={}):
+        futures = get_runtime().map(_run_or_sleep, [0, self.timeout], workflow=self.workflow, circuit=circuit, data=data)
+        queue = FutureQueue(futures, 2)
+        async for i, result in queue:
+            new_circuit, new_data = result
+            if "slept" in new_data:
+                data["timeout"] = new_data["slept"]
+            else:
+                circuit.become(new_circuit)
+                data.update(new_data)
+            queue.cancel()
+
 
 class UnwrapForEachPassDown(BasePass):
     async def run(self, circuit, data={}):
