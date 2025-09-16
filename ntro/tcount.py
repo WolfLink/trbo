@@ -11,7 +11,7 @@ try:
     from bqskitrs import SumResidualsFunction as NTRORS_SumResidualsFunction
     from bqskitrs import SmallestNResidualsFunction as NTRORS_SmallestNResidualsFunction
     NTRORS = True
-except:
+except ImportError:
     pass
 
 
@@ -57,7 +57,7 @@ class MatrixDistanceCost(DifferentiableCostFunction):
             p3 = (np.real(S)*np.real(JUS) + np.imag(S)*np.imag(JUS)) / (U.shape[0] * np.abs(S))
 
             return p1 * p2 * p3
-        except (RuntimeError, FloatingPointError, ZeroDivisionError, OverflowError):
+        except (FloatingPointError, ZeroDivisionError, OverflowError):
             if np.isclose(S, 0):
                 return 0 * JUS
             else:
@@ -119,11 +119,11 @@ class SumResiduals(DifferentiableResidualsFunction):
     def num_residuals(self):
         try:
             numa = self.A.num_residuals()
-        except:
+        except AttributeError:
             numa = len(self.A.get_residuals(self.test_params))
         try:
             numb = self.B.num_residuals()
-        except:
+        except AttributeError:
             numb = len(self.B.get_residuals(self.test_params))
         return numa + numb
 

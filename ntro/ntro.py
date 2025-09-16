@@ -30,7 +30,6 @@ from ntro.tcount import SumResidualsGenerator
 from ntro.tcount import RoundSmallestNResidualsGenerator
 from ntro.tcount import MatrixDistanceCostGenerator
 from ntro.clift import better_min_t_count_circuit
-from ntro.rz_to_t import RzToTPass, RzToT_ScanningBruteForcePass
 
 from bqskit.ir.opt.minimizers.ceres import CeresMinimizer
 from bqskit.ir.opt.minimizers.lbfgs import LBFGSMinimizer
@@ -45,7 +44,7 @@ class NumericalTReductionPass(BasePass):
         self,
         success_threshold: float = 1e-6,
         multistarts: int = 32,
-        second_pass_starts: int | nonetype = None,
+        second_pass_starts: int | None = None,
         target_periods = None,
         target_gates = None,
         **kwargs,

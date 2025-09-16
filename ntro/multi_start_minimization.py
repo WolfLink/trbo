@@ -179,14 +179,14 @@ class MultiStartMinimization(Instantiater):
         best_result = circuit.params
         best_cost = cost.get_cost(circuit.params)
         best_cost = None
-        async for index, result in FutureQueue(result_future, num_starts):
+        queue = FutureQueue(result_future, num_starts)
+        async for index, result in queue:
             distance = cost.get_cost(result)
             if best_cost is None or distance < best_cost:
                 best_cost = distance
                 best_result = result
             if self.threshold is not None and best_cost < self.threshold:
-                break
-        get_runtime().cancel(result_future) # BQSKIT BUG causes this to not work TODO
+                queue.cancel()
         #if self.threshold is not None and best_cost >= self.threshold:
         #    return None
         circuit.set_params(best_result)
