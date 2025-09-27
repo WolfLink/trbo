@@ -1,5 +1,7 @@
 # This code is meant to be a wrapper around "gridsynth", also known as "newsynth" from Selinger and Ross.
-# A binary of gridsynth/newsynth must be provided.
+# A copy of gridsynth/newsynth must be provided to use this wrapper.
+# The easiest way is to install pygridsynth using "pip install pygridsynth"
+# Alternatively, you can download a binary or build it from source.
 # You can find downloads of gridsynth/newsynth in both binary and source code form from:
 # https://www.mathstat.dal.ca/~selinger/newsynth/#downloading
 
@@ -43,7 +45,7 @@ def get_gridsynth_binary():
     except:
         return None
 
-def gridsynth(angle, e=1e-10, pi=False, gridsynth_binary=None):
+def gridsynth(angle, e=1e-6, pi=False, gridsynth_binary=None):
     angle = angle % 2 if pi else angle % (2 * np.pi)
     anglestr = f"pi*{angle}" if pi else f"{angle}"
 
