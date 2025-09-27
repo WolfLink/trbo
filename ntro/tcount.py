@@ -57,11 +57,8 @@ class MatrixDistanceCost(DifferentiableCostFunction):
             p3 = (np.real(S)*np.real(JUS) + np.imag(S)*np.imag(JUS)) / (U.shape[0] * np.abs(S))
 
             return p1 * p2 * p3
-        except (FloatingPointError, ZeroDivisionError, OverflowError):
-            if np.isclose(S, 0):
-                return 0 * JUS
-            else:
-                raise
+        except (FloatingPointError, ZeroDivisionError, OverflowError, RuntimeWarning, RuntimeError):
+            return 0 * JUS
 
 
 class SumCostGenerator(CostFunctionGenerator):
