@@ -32,8 +32,9 @@ class FutureQueue:
                 self.queue.extend(await get_runtime().next(self.future))
                 self.remaining -= 1
                 return self.queue.pop(0)
-            except RuntimeError:
-                raise StopAsyncIteration
+            except (RuntimeError, IndexError):
+                if self._cancelled:
+                    raise StopAsyncIteration
 
     def cancel(self):
         if not self._cancelled:
