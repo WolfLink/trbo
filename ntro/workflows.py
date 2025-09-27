@@ -74,10 +74,10 @@ def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=False
     return passes
 
 def fast():
-    return default(16, 4)
+    return default(16, 4, phase_correct=False)
 
 def slow():
-    return default(64, 6)
+    return default(64, 6, phase_correct=True)
 
 def veryslow():
-    return default(128, 7)
+    return default(128, 7, phase_correct=True)
