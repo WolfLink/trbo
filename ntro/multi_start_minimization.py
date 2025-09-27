@@ -160,7 +160,8 @@ class MultiStartMinimization(Instantiater):
         if num_starts == 0:
             # First pass failed. Generally, this should never happen,
             # Because we know at least one set of parameters that should pass the threshold.
-            raise RuntimeWarning("First Pass Failed!")
+            #raise RuntimeWarning("First Pass Failed!")
+            print(f"WARNING: First pass optimization failed! You may want to increase the number of multistarts.")
             return circuit
 
         result_future = get_runtime().map(
