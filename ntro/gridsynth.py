@@ -22,6 +22,7 @@ from bqskit.ir.gates.constant.x import XGate
 from bqskit.ir.gates.constant.s import SGate
 from bqskit.ir.gates.constant.t import TGate
 from bqskit.ir.gates.constant.h import HGate
+from bqskit.runtime import get_runtime
 import logging
 
 try:
@@ -45,7 +46,7 @@ def get_gridsynth_binary():
     except:
         return None
 
-def gridsynth(angle, e=1e-6, pi=False, gridsynth_binary=None):
+def gridsynth(angle, e=1e-10, pi=False, gridsynth_binary=None):
     angle = angle % 2 if pi else angle % (2 * np.pi)
     anglestr = f"pi*{angle}" if pi else f"{angle}"
 
@@ -77,29 +78,42 @@ def gridsynth(angle, e=1e-6, pi=False, gridsynth_binary=None):
     return CircuitGate(circuit)
 
 class GridsynthSweeper:
-    def __init__(self, circuit, target, gridsynth_binary):
+    def __init__(self, circuit, gridsynth_binary):
         self.points = []
         self.ops = []
         self.gridsynth_binary = gridsynth_binary
-        self.target = target
         for cycle,op in circuit.operations_with_cycles():
             if isinstance(op.gate, RZGate):
                 self.points.append((cycle, op.location[0]))
                 self.ops.append((op.params[0], op.location))
 
-    def resynthesize(self, circuit, e):
+    async def resynthesize(self, circuit, e):
         trial_circuit = circuit.copy()
-        new_gates = [Operation(
-            gridsynth(ops[0], e=e, gridsynth_binary=self.gridsynth_binary),
-            ops[1],
-            [])
-            for ops in self.ops
-            ]
+        new_ops = await get_runtime().map(
+                gridsynth,
+                [op[0] for op in self.ops],
+                [e] * len(self.ops),
+                [self.gridsynth_binary] * len(self.ops),
+                )
+        new_gates = [Operation(new_ops[i], self.ops[i][1], []) for i in range(len(self.ops))]
         trial_circuit.batch_replace(self.points, new_gates)
-        distance = trial_circuit.get_unitary().get_unitary().get_distance_from(self.target)
-        return trial_circuit, distance
+        return trial_circuit
 
 class GridsynthPass(BasePass):
+    def __init__(self, e=1e-10, gridsynth_binary=None):
+        self.e = e
+        self.gridsynth_binary = gridsynth_binary
+       
+    async def run(self, circuit, data={}):
+        if circuit.num_params < 1:
+            return
+        gridsynth = GridsynthSweeper(circuit, self.gridsynth_binary)
+        new_circuit = await gridsynth.resynthesize(circuit, self.e)
+        circuit.become(new_circuit)
+
+
+
+class HilbertSchmidtGridsynthPass(BasePass):
     def __init__(self, threshold=1e-6, utry=None, gridsynth_binary=None, retries=4, preoptimize=False):
         self.threshold = threshold
         self.utry = utry
