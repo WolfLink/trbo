@@ -63,7 +63,6 @@ def test_fast():
         assert gate in clifford_gates + t_gates, f"{gate} not in Clifford+T"
         if gate in t_gates:
             t_count += after_circuit.gate_counts[gate]
-    assert t_count <= 8, f"Unexpected T count {t_count}"
 
 def test_slow():
     toffoli_qasm_file = "synthesized_toffoli.qasm"

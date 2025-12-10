@@ -20,6 +20,8 @@ from ntro.clift import t_gates
 from ntro.clift import rz_gates
 from ntro.clift import GlobalPhaseGate
 from ntro.clift import better_min_t_count_circuit
+from ntro.clift import RzAsT 
+from ntro.clift import RzAsCliff
 from ntro.utils import FutureQueue
 
 from ntro.multi_start_minimization import MultiStartMinimization
@@ -29,7 +31,6 @@ from ntro.tcount import RoundSmallestNCostGenerator
 from ntro.tcount import SumResidualsGenerator
 from ntro.tcount import RoundSmallestNResidualsGenerator
 from ntro.tcount import MatrixDistanceCostGenerator
-from ntro.clift import better_min_t_count_circuit
 
 from bqskit.ir.opt.minimizers.ceres import CeresMinimizer
 from bqskit.ir.opt.minimizers.lbfgs import LBFGSMinimizer
@@ -45,8 +46,8 @@ class NumericalTReductionPass(BasePass):
         success_threshold: float = 1e-6,
         multistarts: int = 32,
         second_pass_starts: int | None = None,
-        target_periods = None,
-        target_gates = None,
+        rz_discretizations = None,
+        strict_opt = False, # if True it will be slower at a marginal improvement in T count
         **kwargs,
     ) -> None:
         """
@@ -61,14 +62,92 @@ class NumericalTReductionPass(BasePass):
         self.second_pass_starts = second_pass_starts
 
         self.acceptable_gates = clifford_gates + t_gates + rz_gates
-        if target_periods is None:
-            self.target_periods = [0.5 * np.pi, 0.25 * np.pi]
+
+        if rz_discretizations is None:
+            self.rz_discretizations = [RzAsT(), RzAsCliff()]
         else:
-            self.target_periods = target_periods
+            self.rz_discretizations = rz_discretizations
         self.multistarts = multistarts
+        self.strict_opt = strict_opt
+
+    async def validated_optimization(self, circuit, target, N, discretization, threshold, initial_params=[], blacklist=None):
+        # compute numbers of starts
+        ms1 = self.multistarts
+        ms2 = self.second_pass_starts
+        if ms2 is None:
+            ms2 = ms1 // 2
+            ms2 = max(1, ms2)
+
+        # Prepare cost functions
+        d_gen = MatrixDistanceCostGenerator()
+        d_res = HilbertSchmidtResidualsGenerator()
+        n_gen = discretization.cost_generator(N, blacklist)
+        n_res = discretization.residuals_generator(N, blacklist)
+        sum_gen = SumCostGenerator(d_gen, n_gen)
+        sum_res = SumResidualsGenerator(d_res, n_res)
+
+        def get_score(x):
+            return sum_gen.gen_cost(circuit, target)(x)
+
+        # Try known good sets of parameters before introducing randomness:
+        for params in initial_params:
+            trial_params = params
+            score = get_score(trial_params)
+            if score < threshold:
+                return score, trial_params
+
+        # When those good parameters don't work, we need to search for new ones.
+        # Starting near the "good guesses" is a great place to start.
+        if len(initial_params) > 0:
+            miser = MultiStartMinimization(sum_res, multistarts=2, minimizer=CeresMinimizer(), second_pass=None, judgement_cost=sum_gen)
+            result = await miser.multi_start_instantiate_async(circuit, target, starts=initial_params)
+            score = get_score(trial_params)
+            if score < threshold:
+                return score, trial_params
+
+        # Sometimes its truly necessary to search new territory, so we now use random starting points.
+        miser = MultiStartMinimization(sum_res, multistarts=ms1, minimizer=CeresMinimizer(), second_pass=ms2, threshold=threshold, judgement_cost=sum_gen)
+        result = await miser.multi_start_instantiate_async(circuit, target)
+        trial_params = result.params
+        score = get_score(trial_params)
+        if score < threshold:
+            return score, trial_params
+
+        if score < threshold * 10:
+            # try a fine-tuning approach to see if we can squeeze out enough improvement to pass the threshold
+            old_score = score
+            fine_tuner = LBFGSMinimizer()
+            trial_params = fine_tuner.minimize(sum_gen.gen_cost(circuit, target), trial_params)
+            score = get_score(trial_params)
+        return score, trial_params
+
+    def round_circuit(self, circuit, target, N, discretization, blacklist, threshold):
+        indices = np.argsort(discretization.param_distances(circuit.params, blacklist)) + 1
+        op_index = 0
+        for cycle, op in circuit.operations_with_cycles():
+            op_index += len(op.params)
+            if len(op.params) != 1:
+                continue
+            if op.gate not in rz_gates:
+                continue
+            if op_index in indices[:N]:
+                if op.gate in rz_gates:
+                    rounded = discretization.nearest_gate(op.params[0])
+                    circuit.replace_gate(
+                        (cycle, op.location[0]), rounded, op.location
+                    )
+                else:
+                    raise RuntimeError("Attempted to round unexpected gate type {op.gate}")
+
+        if not circuit.get_unitary().get_distance_from(target) <= threshold:
+            test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(circuit, target), circuit.params)
+            if circuit.get_unitary(test_params).get_distance_from(target) < circuit.get_unitary().get_distance_from(target):
+                circuit.set_params(test_params)
+        if not circuit.get_unitary().get_distance_from(target) <= threshold:
+            print(f"ERROR got {circuit.get_unitary().get_distance_from(target)} > {threshold}")
 
 
-    async def optimize_for_period(self, circuit, target, period, threshold=None):
+    async def optimize_for_discretization(self, circuit, target, discretization, remainders=None, threshold=None, leave_unrounded=0):
         trial_circuit = circuit.copy()
         if threshold is None:
             threshold = self.success_threshold
@@ -85,65 +164,36 @@ class NumericalTReductionPass(BasePass):
             blacklist = np.zeros_like(circuit.params)
             for i in blacklisted_indices:
                 blacklist[i] = 1
-            return blacklist
+            return blacklist, len(blacklisted_indices)
 
-        ms1 = self.multistarts
-        ms2 = self.second_pass_starts
-        if ms2 is None:
-            ms2 = ms1 // 2
-            ms2 = max(1, ms2)
 
-        d_gen = MatrixDistanceCostGenerator()
-        d_res = HilbertSchmidtResidualsGenerator()
         best_params = circuit.params
         best_N = 0
         first_min = CeresMinimizer()
 
-        high = len(circuit.params)
+        blacklist, bll = gen_blacklist(trial_circuit)
+        max_N = len(circuit.params) - bll - leave_unrounded
+        high = max_N
         low = 0
         while low <= high:
             N = low + (high - low) // 2
-            blacklist = gen_blacklist(trial_circuit)
-            n_gen = RoundSmallestNCostGenerator(N, period, blacklist=blacklist)
-            n_res = RoundSmallestNResidualsGenerator(N, period, blacklist=blacklist)
-            sum_gen = SumCostGenerator(d_gen, n_gen)
-            sum_res = SumResidualsGenerator(d_res, n_res)
-            def get_score(x):
-                return sum_gen.gen_cost(trial_circuit, target)(x)
 
             # Two good sets of parameters to try before introducing randomness:
             #   1. Previously known good parameters in this loop
             #   2. The original circuit parameters
             # Often one of these sets of parameters will just work, allowing us to skip optimization.
+            # (these are passed as initial_params to validated_optimization)
+            score, trial_params = await self.validated_optimization(trial_circuit, target, N, discretization, threshold, [circuit.params, best_params], blacklist)
 
-            trial_params = best_params
-            score = get_score(trial_params)
-            if score >= threshold:
-                trial_params = circuit.params
-                score = get_score(trial_params)
+            # if we have remainder discretizations, we have to ensure that the remaining Rz gates can be captured by those
+            if N < max_N and score < threshold and remainders is not None and len(remainders) > 0:
+                if len(remainders) == 1:
+                    test_circuit = trial_circuit.copy()
+                    self.round_circuit(test_circuit, target, N, discretization, blacklist, threshold)
+                    test_blacklist, _ = gen_blacklist(test_circuit)
+                    score, _ = await self.validated_optimization(test_circuit, target, max_N - N, remainders[0], threshold, [test_circuit.params], test_blacklist)
 
-            # When those good parameters don't work, we need to search for new ones.
-            # Starting near the "good guesses" is a great place to start.
-            if score >= threshold:
-                miser = MultiStartMinimization(sum_res, multistarts=2, minimizer=CeresMinimizer(), second_pass=None, judgement_cost=sum_gen)
-                result = await miser.multi_start_instantiate_async(trial_circuit, target, starts=[best_params, circuit.params])
-                score = get_score(trial_params)
 
-            # Sometimes its truly necessary to search new territory, so we now use random starting points.
-            if score >= threshold:
-                miser = MultiStartMinimization(sum_res, multistarts=ms1, minimizer=CeresMinimizer(), second_pass=ms2, threshold=threshold, judgement_cost=sum_gen)
-                result = await miser.multi_start_instantiate_async(trial_circuit, target)
-                trial_params = result.params
-                score = get_score(trial_params)
-
-            if score >= threshold and score < threshold * 10:
-                # try a fine-tuning approach to see if we can squeeze out enough improvement to pass the threshold
-                old_score = score
-                fine_tuner = LBFGSMinimizer()
-                trial_params = fine_tuner.minimize(sum_gen.gen_cost(circuit, target), trial_params)
-                score = get_score(trial_params)
-
-                # after all that trying to get a good result, we ultimately have to give up if we still don't have an acceptable result
             if score >= threshold:
                 high = N - 1
             else:
@@ -151,57 +201,34 @@ class NumericalTReductionPass(BasePass):
                 if N > best_N:
                     best_params = trial_params
                     best_N = N
- 
         if best_N == 0:
             # we failed to find any improvement
-            return
+            return circuit
 
         # We have identified a set of parameters that allows N Rz gates to be rounded
         # Now its time to go actually replace those Rz gates with Clifford+T circuits
         best_circuit = circuit.copy()
         best_circuit.set_params(best_params)
-        best_sum = RoundSmallestNCostGenerator(best_N, period, blacklist=gen_blacklist(best_circuit)).gen_cost(best_circuit, target)(best_params)
-        best_dist = best_circuit.get_unitary().get_distance_from(target)
 
-        indices = np.argsort(get_deviation_arr(best_circuit.params, period, gen_blacklist(best_circuit))) + 1
-        op_index = 0
-        for cycle, op in best_circuit.operations_with_cycles():
-            op_index += len(op.params)
-            if len(op.params) != 1:
-                continue
-            if op.gate not in rz_gates:
-                continue
-            if op_index in indices[:best_N]:
-                if op.gate in rz_gates:
-                    rounded = circuit_for_rounded_val(op.params[0], period < np.pi * 0.5)
-                    best_circuit.replace_gate(
-                        (cycle, op.location[0]), rounded, op.location
-                    )
-                else:
-                    raise RuntimeError("Attempted to round unexpected gate type {op.gate}")
+
+        # do the actual rounding of the circuit
+        self.round_circuit(best_circuit, target, best_N, discretization, blacklist, threshold)
+
+        # if we have remainders, we are not done yet
+        if best_N < max_N and remainders is not None and len(remainders) > 0:
+            if len(remainders) == 1:
+                test_blacklist, _ = gen_blacklist(best_circuit)
+                _, test_params = await self.validated_optimization(best_circuit, target, max_N - N, remainders[0], threshold, [best_circuit.params], test_blacklist)
+                self.round_circuit(best_circuit, target, max_N - N, remainders[0], test_blacklist, threshold)
+ 
+        # do some final fine-tuning of the parameters
         test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(best_circuit, target), best_circuit.params)
         if best_circuit.get_unitary(test_params).get_distance_from(target) < best_circuit.get_unitary().get_distance_from(target):
             best_circuit.set_params(test_params)
         if not best_circuit.get_unitary().get_distance_from(target) <= threshold:
             print(f"ERROR got {best_circuit.get_unitary().get_distance_from(target)} > {threshold}")
+        best_circuit.unfold_all()
         return best_circuit
-
-    async def optimize_all_periods(self, circuit, target, x0, threshold=None):
-        candidate_circuit = circuit.copy()
-        candidate_circuit.set_params(x0)
-        for period in self.target_periods:
-            result = await get_runtime().submit(
-                    self.optimize_for_period,
-                    candidate_circuit,
-                    target,
-                    period,
-                    threshold,
-                    )
-            if result is not None:
-                result.unfold_all()
-                candidate_circuit = result
-        return candidate_circuit
-
 
     async def run(self, circuit: Circuit, data: PassData = {}) -> None:
         # Check that circuit has been converrted to Clifford+T+Rz
@@ -227,12 +254,22 @@ class NumericalTReductionPass(BasePass):
         candidate_circuit = initial_circuit
 
         # perform the optimization
-        candidate_circuit = await self.optimize_all_periods(initial_circuit, utry, circuit.params, threshold)
+        best_circuit = initial_circuit
+        leave_unrounded = 0
+        for i in range(len(self.rz_discretizations)):
+            discretization = self.rz_discretizations[i]
+            remainders = self.rz_discretizations[:i]
+            candidate_circuit = await self.optimize_for_discretization(initial_circuit, utry, discretization, remainders, threshold, leave_unrounded)
+            candidate_circuit.unfold_all()
+            if not discretization.success_comparator(best_circuit, candidate_circuit):
+                break
+            best_circuit = candidate_circuit
+            rz_count = 0
+            for gate in candidate_circuit.gate_counts:
+                if gate not in clifford_gates + t_gates:
+                    rz_count += candidate_circuit.gate_counts[gate]
+            leave_unrounded = rz_count
+            if leave_unrounded > 0 and not self.strict_opt:
+                break
 
-        # verify that the optimization improved the circuit before accepting the new circuit
-        if better_min_t_count_circuit(initial_circuit, candidate_circuit):
-            circuit.become(candidate_circuit)
-        else:
-            circuit.become(initial_circuit)
-        return circuit
-
+        circuit.become(best_circuit)

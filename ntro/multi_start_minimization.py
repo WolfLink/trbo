@@ -138,7 +138,9 @@ class MultiStartMinimization(Instantiater):
                 quota = num_starts
             
             queue = FutureQueue(result_future, num_starts)
-            async for index, result in queue:
+            async for data in queue:
+                if data is not None:
+                    index, result = data
                 if self.threshold is not None and first_pass_cost(result) >= self.threshold:
                     continue
                 succeeded += 1

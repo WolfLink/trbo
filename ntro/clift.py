@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 from bqskit.ir.circuit import Circuit
 from bqskit.ir.gates import CircuitGate
@@ -21,6 +22,9 @@ from bqskit.qis.unitary.differentiable import DifferentiableUnitary
 from bqskit.utils.cachedclass import CachedClass
 from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
 
+
+from ntro.tcount import RoundSmallestNCostGenerator, RoundSmallestNResidualsGenerator, get_deviation_arr
+from ntro.discretization import RzDiscretization
 
 class GlobalPhaseGate(QubitGate, DifferentiableUnitary, CachedClass):
     """GlobalPhaseGate is the identity but with a global phase. It doesn't represent a physical gate (or rather, it represents a noop, like the identity), but its inclusion in a circuit allows a matrix distance function that is global phase dependent to find solutions that don't have a global phase match."""
@@ -59,6 +63,37 @@ rz_gates = [RZGate()]
 
 
 
+class RzAsT(RzDiscretization):
+    def nearest_gate(self, rz_angle: float) -> CircuitGate:
+        return circuit_for_rounded_val(rz_angle, enable_t = True)
+
+    def param_distances(self, params: [float], blacklist: Optional[[int]] = None) -> [float]:
+        return get_deviation_arr(params, np.pi / 4, blacklist)
+
+    def cost_generator(self, N: int, blacklist: Optional[[int]] = None) -> CostFunctionGenerator:
+        return RoundSmallestNCostGenerator(N, period = np.pi / 4, blacklist = blacklist)
+
+    def residuals_generator(self, N: int, blacklist: Optional[[int]] = None) -> CostFunctionGenerator:
+        return RoundSmallestNResidualsGenerator(N, np.pi / 4, blacklist)
+
+    def success_comparator(self, a, b) -> bool:
+        return better_min_t_count_circuit(a, b)
+
+class RzAsCliff(RzDiscretization):
+    def nearest_gate(self, rz_angle: float) -> CircuitGate:
+        return circuit_for_rounded_val(rz_angle, enable_t = False)
+
+    def param_distances(self, params: [float], blacklist: Optional[[int]] = None) -> [float]:
+        return get_deviation_arr(params, np.pi / 2, blacklist)
+
+    def cost_generator(self, N: int, blacklist: Optional[[int]] = None) -> CostFunctionGenerator:
+        return RoundSmallestNCostGenerator(N, period = np.pi / 2, blacklist = blacklist)
+
+    def residuals_generator(self, N: int, blacklist: Optional[[int]] = None) -> CostFunctionGenerator:
+        return RoundSmallestNResidualsGenerator(N, np.pi / 2, blacklist)
+
+    def success_comparator(self, a, b) -> bool:
+        return better_min_t_count_circuit(a, b)
 
 def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
     """

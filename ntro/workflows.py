@@ -1,6 +1,6 @@
 """This module contains definitions of common workflows for convenience."""
 from bqskit.passes import GroupSingleQuditGatePass, ForEachBlockPass, IfThenElsePass, WidthPredicate, ZXZXZDecomposition, UnfoldPass, NOOPPass, QuickPartitioner, QSearchSynthesisPass
-from .clift import clifford_gates, t_gates, rz_gates, GlobalPhaseGate
+from .clift import clifford_gates, t_gates, rz_gates, GlobalPhaseGate, RzAsT
 from .utils import HasGateSetPredicate, AppendGatePass, RemoveGatePass, SetDataPass
 from .ntro import NumericalTReductionPass
 
@@ -39,7 +39,7 @@ def sanitize_gateset(synthesize_size=3):
                  ]),
             ]
 
-def no_partitioning(multistarts=32, sanitize=True, phase_correct=False, utry=None):
+def no_partitioning(multistarts=32, sanitize=True, phase_correct=False, utry=None, strict_opt=False, rz_disc=None):
     passes = []
     if utry is not None:
         passes += [SetDataPass("utry", utry)]
@@ -50,18 +50,18 @@ def no_partitioning(multistarts=32, sanitize=True, phase_correct=False, utry=Non
 
     if phase_correct:
         passes += [AppendGatePass(GlobalPhaseGate()),
-                   NumericalTReductionPass(multistarts=multistarts),
+                   NumericalTReductionPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
                    RemoveGatePass(GlobalPhaseGate())]
     else:
         passes += [NumericalTReductionPass(multistarts=multistarts)]
     return passes
 
-def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=False):
+def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=True, strict_opt=False, rz_disc=None):
     if phase_correct:
         passes = [QuickPartitioner(partition_size), 
                   ForEachBlockPass([
                       AppendGatePass(GlobalPhaseGate()),
-                      NumericalTReductionPass(multistarts=multistarts),
+                      NumericalTReductionPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
                       RemoveGatePass(GlobalPhaseGate()),
                       ]), 
                   UnfoldPass()]
@@ -74,10 +74,10 @@ def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=False
     return passes
 
 def fast():
-    return default(16, 4, phase_correct=False)
+    return default(16, 4, phase_correct=False, rz_disc=[RzAsT()])
 
 def slow():
-    return default(64, 6, phase_correct=True)
+    return default(64, 6, phase_correct=True, strict_opt=True)
 
 def veryslow():
-    return default(128, 7, phase_correct=True)
+    return default(128, 7, phase_correct=True, strict_opt=True)
