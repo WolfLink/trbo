@@ -1,5 +1,3 @@
-import os
-
 from bqskit import compile
 from bqskit.compiler import CompilationTask, Compiler
 from bqskit.passes import SetModelPass
@@ -17,6 +15,8 @@ import trbo
 from trbo.trbo import *
 from trbo.tcount import *
 import pytest
+
+from load_test_file import toffoli_qasm_file
 
 
 def check_grad(circuit, target, cost_gen):
@@ -47,7 +47,6 @@ toffoli_u = [
 ]
 toffoli_u = np.array(toffoli_u, dtype='complex128')
 
-toffoli_qasm_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "synthesized_toffoli.qasm")
 toffoli_c = Circuit.from_file(toffoli_qasm_file)
 
 @pytest.mark.parametrize("cost_function_generator", [

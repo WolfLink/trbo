@@ -3,10 +3,10 @@ from bqskit.compiler import Compiler
 from bqskit import Circuit
 from trbo.clift import clifford_gates, t_gates, rz_gates
 from trbo.workflows import *
+from load_test_file import toffoli_qasm_file
 
 
 def test_default():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:

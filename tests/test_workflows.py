@@ -6,9 +6,10 @@ from bqskit.ir.gates.constant.unitary import ConstantUnitaryGate
 from trbo.clift import clifford_gates, t_gates, rz_gates
 from trbo.workflows import *
 
+from load_test_file import toffoli_qasm_file
+
 
 def test_sanitize_synthesized():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
@@ -38,7 +39,6 @@ def test_sanitize_needs_synthesis():
         assert gate in clifford_gates + t_gates + rz_gates, f"{gate} not in Clifford+t+Rz"
 
 def test_default():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
@@ -52,7 +52,6 @@ def test_default():
     assert t_count == 7, f"Unexpected T count {t_count}"
 
 def test_fast():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
@@ -65,7 +64,6 @@ def test_fast():
             t_count += after_circuit.gate_counts[gate]
 
 def test_slow():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
@@ -79,7 +77,6 @@ def test_slow():
     assert t_count == 7, f"Unexpected T count {t_count}"
 
 def test_veryslow():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
@@ -93,7 +90,6 @@ def test_veryslow():
     assert t_count == 7, f"Unexpected T count {t_count}"
 
 def test_phase_correct():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
@@ -107,7 +103,6 @@ def test_phase_correct():
     assert t_count == 7, f"Unexpected T count {t_count}"
 
 def test_no_paritioning():
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
@@ -134,7 +129,6 @@ def test_no_partitioning_target_unitary():
     ]
     toffoli_u = np.array(toffoli_u, dtype='complex128')
 
-    toffoli_qasm_file = "synthesized_toffoli.qasm"
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:

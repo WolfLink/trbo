@@ -67,7 +67,7 @@ def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=True,
                   UnfoldPass()]
     else:
         passes = [QuickPartitioner(partition_size),
-                  ForEachBlockPass(TRbOPass(multistarts=multistarts)),
+                  ForEachBlockPass(TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc)),
                   UnfoldPass()]
     if sanitize:
         passes = sanitize_gateset() + passes
@@ -77,7 +77,7 @@ def fast():
     # Doesn't add phase correction and doesn't prefer Clifford gates over T gates
     # This pass will run quickly and reduce the need to use gridsynth
     # but it won't be able to achieve optimal T-counts on small circuits
-    return default(16, 4, phase_correct=False, rz_disc=[RzAsT()])
+    return default(16, 4, phase_correct=True, rz_disc=[RzAsT()])
 
 def slow():
     # Uses more mutlistarts than default
