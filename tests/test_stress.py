@@ -3,9 +3,9 @@ import numpy as np
 from bqskit.compiler import Compiler
 from bqskit import Circuit
 from bqskit.ir.gates.constant.unitary import ConstantUnitaryGate
-from ntro.clift import clifford_gates, t_gates, rz_gates
-from ntro.workflows import *
-from ntro.utils import MultistartPass
+from trbo.clift import clifford_gates, t_gates, rz_gates
+from trbo.workflows import *
+from trbo.utils import MultistartPass
 
 
 def qft(n):

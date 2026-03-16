@@ -1,4 +1,4 @@
-"""This module implements the NumericalTReductionPass."""
+"""This module implements the TReductionByOptimiationPass."""
 from __future__ import annotations
 
 from typing import Optional
@@ -14,23 +14,23 @@ from bqskit.ir.opt.multistartgens.random import RandomStartGenerator
 
 import numpy as np
 
-from ntro.clift import circuit_for_rounded_val
-from ntro.clift import clifford_gates
-from ntro.clift import t_gates
-from ntro.clift import rz_gates
-from ntro.clift import GlobalPhaseGate
-from ntro.clift import better_min_t_count_circuit
-from ntro.clift import RzAsT 
-from ntro.clift import RzAsCliff
-from ntro.utils import FutureQueue
+from trbo.clift import circuit_for_rounded_val
+from trbo.clift import clifford_gates
+from trbo.clift import t_gates
+from trbo.clift import rz_gates
+from trbo.clift import GlobalPhaseGate
+from trbo.clift import better_min_t_count_circuit
+from trbo.clift import RzAsT 
+from trbo.clift import RzAsCliff
+from trbo.utils import FutureQueue
 
-from ntro.multi_start_minimization import MultiStartMinimization
-from ntro.tcount import get_deviation_arr
-from ntro.tcount import SumCostGenerator
-from ntro.tcount import RoundSmallestNCostGenerator
-from ntro.tcount import SumResidualsGenerator
-from ntro.tcount import RoundSmallestNResidualsGenerator
-from ntro.tcount import MatrixDistanceCostGenerator
+from trbo.multi_start_minimization import MultiStartMinimization
+from trbo.tcount import get_deviation_arr
+from trbo.tcount import SumCostGenerator
+from trbo.tcount import RoundSmallestNCostGenerator
+from trbo.tcount import SumResidualsGenerator
+from trbo.tcount import RoundSmallestNResidualsGenerator
+from trbo.tcount import MatrixDistanceCostGenerator
 
 from bqskit.ir.opt.minimizers.ceres import CeresMinimizer
 from bqskit.ir.opt.minimizers.lbfgs import LBFGSMinimizer
@@ -40,7 +40,7 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-class NumericalTReductionPass(BasePass):
+class TReductionByOptimiationPass(BasePass):
     def __init__(
         self,
         success_threshold: float = 1e-6,
@@ -51,7 +51,7 @@ class NumericalTReductionPass(BasePass):
         **kwargs,
     ) -> None:
         """
-        Construct a NumericalTReductionPass
+        Construct a TReductionByOptimiationPass
 
         Args:
             success_threshold (float): The synthesis success threshold.
@@ -89,7 +89,7 @@ class NumericalTReductionPass(BasePass):
         def get_score(x):
             return sum_gen.gen_cost(circuit, target)(x)
 
-        # Try known good sets of parameters before introducing randomness:
+        # Try known good sets of parameters before itrboducing randomness:
         for params in initial_params:
             trial_params = params
             score = get_score(trial_params)
@@ -178,7 +178,7 @@ class NumericalTReductionPass(BasePass):
         while low <= high:
             N = low + (high - low) // 2
 
-            # Two good sets of parameters to try before introducing randomness:
+            # Two good sets of parameters to try before itrboducing randomness:
             #   1. Previously known good parameters in this loop
             #   2. The original circuit parameters
             # Often one of these sets of parameters will just work, allowing us to skip optimization.
@@ -235,7 +235,7 @@ class NumericalTReductionPass(BasePass):
         if any(g not in self.acceptable_gates for g in circuit.gate_set):
             m = (
                 'Circuit must be converted to Clifford+T+Rz before running'
-                f' NumericalTReductionPass. Got {circuit.gate_set}.'
+                f' TReductionByOptimiationPass. Got {circuit.gate_set} instead of {self.acceptable_gates}.'
             )
             raise ValueError(m)
 
@@ -273,3 +273,7 @@ class NumericalTReductionPass(BasePass):
                 break
 
         circuit.become(best_circuit)
+
+
+# make a shorthand alias for the full pass name
+TRbOPass = TReductionByOptimiationPass

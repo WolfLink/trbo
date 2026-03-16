@@ -23,8 +23,8 @@ from bqskit.utils.cachedclass import CachedClass
 from bqskit.qis.unitary.unitarymatrix import UnitaryMatrix
 
 
-from ntro.tcount import RoundSmallestNCostGenerator, RoundSmallestNResidualsGenerator, get_deviation_arr
-from ntro.discretization import RzDiscretization
+from trbo.tcount import RoundSmallestNCostGenerator, RoundSmallestNResidualsGenerator, get_deviation_arr
+from trbo.discretization import RzDiscretization
 
 class GlobalPhaseGate(QubitGate, DifferentiableUnitary, CachedClass):
     """GlobalPhaseGate is the identity but with a global phase. It doesn't represent a physical gate (or rather, it represents a noop, like the identity), but its inclusion in a circuit allows a matrix distance function that is global phase dependent to find solutions that don't have a global phase match."""

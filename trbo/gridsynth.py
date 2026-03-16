@@ -216,7 +216,7 @@ class HilbertSchmidtGridsynthPass(BasePass):
                 print(f"GRIDSYNTH RESULTS: {min_d} < {threshold} at {min_e} after {iterations}")
             circuit.become(best_circuit)
         else:
-            _logger.info(f"Gridsynth failed to find a valid circuit.  This likely indicates a bug in bqskit or ntro.")
+            _logger.info(f"Gridsynth failed to find a valid circuit.  This likely indicates a bug in bqskit or trbo.")
             print(f"GRIDSYNTH FAILURE at END: {repr(best_dist)} > {repr(threshold)} after {iterations} and {min_e}")
             for entry in GSLOG:
                 print(f"e: {entry[0]}\t->\td: {entry[1]}")

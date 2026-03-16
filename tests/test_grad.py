@@ -12,9 +12,9 @@ from bqskit.compiler.machine import MachineModel
 from timeit import default_timer as timer
 import numpy as np
 
-import ntro
-from ntro.ntro import *
-from ntro.tcount import *
+import trbo
+from trbo.trbo import *
+from trbo.tcount import *
 import pytest
 
 

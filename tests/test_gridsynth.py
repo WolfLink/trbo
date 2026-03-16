@@ -1,6 +1,6 @@
 import pytest
-from ntro.gridsynth import GridsynthPass
-from ntro.clift import clifford_gates, t_gates, rz_gates
+from trbo.gridsynth import GridsynthPass
+from trbo.clift import clifford_gates, t_gates, rz_gates
 from bqskit import Circuit
 from bqskit.compiler import Compiler
 from bqskit.ir.gates import RZGate

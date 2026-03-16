@@ -2,7 +2,7 @@
 from bqskit.passes import GroupSingleQuditGatePass, ForEachBlockPass, IfThenElsePass, WidthPredicate, ZXZXZDecomposition, UnfoldPass, NOOPPass, QuickPartitioner, QSearchSynthesisPass
 from .clift import clifford_gates, t_gates, rz_gates, GlobalPhaseGate, RzAsT
 from .utils import HasGateSetPredicate, AppendGatePass, RemoveGatePass, SetDataPass
-from .ntro import NumericalTReductionPass
+from .trbo import TRbOPass
 
 
 def sanitize_gateset(synthesize_size=3):
@@ -50,10 +50,10 @@ def no_partitioning(multistarts=32, sanitize=True, phase_correct=False, utry=Non
 
     if phase_correct:
         passes += [AppendGatePass(GlobalPhaseGate()),
-                   NumericalTReductionPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
+                   TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
                    RemoveGatePass(GlobalPhaseGate())]
     else:
-        passes += [NumericalTReductionPass(multistarts=multistarts)]
+        passes += [TRbOPass(multistarts=multistarts)]
     return passes
 
 def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=True, strict_opt=False, rz_disc=None):
@@ -61,13 +61,13 @@ def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=True,
         passes = [QuickPartitioner(partition_size), 
                   ForEachBlockPass([
                       AppendGatePass(GlobalPhaseGate()),
-                      NumericalTReductionPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
+                      TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
                       RemoveGatePass(GlobalPhaseGate()),
                       ]), 
                   UnfoldPass()]
     else:
         passes = [QuickPartitioner(partition_size),
-                  ForEachBlockPass(NumericalTReductionPass(multistarts=multistarts)),
+                  ForEachBlockPass(TRbOPass(multistarts=multistarts)),
                   UnfoldPass()]
     if sanitize:
         passes = sanitize_gateset() + passes

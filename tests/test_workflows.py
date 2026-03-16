@@ -3,8 +3,8 @@ import numpy as np
 from bqskit.compiler import Compiler
 from bqskit import Circuit
 from bqskit.ir.gates.constant.unitary import ConstantUnitaryGate
-from ntro.clift import clifford_gates, t_gates, rz_gates
-from ntro.workflows import *
+from trbo.clift import clifford_gates, t_gates, rz_gates
+from trbo.workflows import *
 
 
 def test_sanitize_synthesized():
