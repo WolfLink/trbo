@@ -1,3 +1,5 @@
+import os
+
 from bqskit import compile
 from bqskit.compiler import CompilationTask, Compiler
 from bqskit.passes import SetModelPass
@@ -9,7 +11,6 @@ from bqskit.ir.opt.cost import HilbertSchmidtCostGenerator, HilbertSchmidtResidu
 from bqskit.ir.gate import Gate
 from bqskit.compiler.machine import MachineModel
 
-from timeit import default_timer as timer
 import numpy as np
 
 import trbo
@@ -46,7 +47,7 @@ toffoli_u = [
 ]
 toffoli_u = np.array(toffoli_u, dtype='complex128')
 
-toffoli_qasm_file = "synthesized_toffoli.qasm"
+toffoli_qasm_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "synthesized_toffoli.qasm")
 toffoli_c = Circuit.from_file(toffoli_qasm_file)
 
 @pytest.mark.parametrize("cost_function_generator", [
