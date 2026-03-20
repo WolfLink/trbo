@@ -39,7 +39,7 @@ def sanitize_gateset(synthesize_size=3):
                  ]),
             ]
 
-def no_partitioning(multistarts=64, sanitize=True, phase_correct=False, utry=None, strict_opt=False, rz_disc=None):
+def no_partitioning(multistarts=64, sanitize=True, utry=None, strict_opt=False, rz_disc=None):
     passes = []
     if utry is not None:
         passes += [SetDataPass("utry", utry)]
@@ -48,27 +48,19 @@ def no_partitioning(multistarts=64, sanitize=True, phase_correct=False, utry=Non
     if sanitize:
         passes += sanitize_gateset()
 
-    if phase_correct:
-        passes += [AppendGatePass(GlobalPhaseGate()),
-                   TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
-                   RemoveGatePass(GlobalPhaseGate())]
-    else:
-        passes += [TRbOPass(multistarts=multistarts)]
+    passes += [AppendGatePass(GlobalPhaseGate()),
+               TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
+               RemoveGatePass(GlobalPhaseGate())]
     return passes
 
-def default(multistarts=64, partition_size=4, sanitize=True, phase_correct=True, strict_opt=False, rz_disc=None):
-    if phase_correct:
-        passes = [QuickPartitioner(partition_size), 
-                  ForEachBlockPass([
-                      AppendGatePass(GlobalPhaseGate()),
-                      TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
-                      RemoveGatePass(GlobalPhaseGate()),
-                      ]), 
-                  UnfoldPass()]
-    else:
-        passes = [QuickPartitioner(partition_size),
-                  ForEachBlockPass(TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc)),
-                  UnfoldPass()]
+def default(multistarts=64, partition_size=4, sanitize=True, strict_opt=False, rz_disc=None):
+    passes = [QuickPartitioner(partition_size), 
+              ForEachBlockPass([
+                  AppendGatePass(GlobalPhaseGate()),
+                  TRbOPass(multistarts=multistarts, strict_opt=strict_opt, rz_discretizations=rz_disc),
+                  RemoveGatePass(GlobalPhaseGate()),
+                  ]), 
+              UnfoldPass()]
     if sanitize:
         passes = sanitize_gateset() + passes
     return passes
@@ -77,11 +69,11 @@ def fast():
     # Doesn't prefer Clifford gates over T gates
     # This pass will run quickly and reduce the need to use gridsynth
     # but it won't be able to achieve optimal T-counts on small circuits
-    return default(32, 4, phase_correct=True, rz_disc=[RzAsT()])
+    return default(32, 4, rz_disc=[RzAsT()])
 
 def slow():
     # Uses more mutlistarts than default
     # Uses strict_opt which will attempt to convert use Clifford instead of T gates
     # even when there will be some leftover Rz gates (this usually is a large compute
     # cost for a small benefit).
-    return default(128, 6, phase_correct=True, strict_opt=True)
+    return default(128, 6, strict_opt=True)

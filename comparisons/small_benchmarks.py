@@ -27,40 +27,30 @@ def run_small_benchmarks(data, max_synth_size=4):
 
             # prep circuit
             before_circuit = Circuit.from_file(bench_data["input"])
-            before_circuit, result_data = run_benchmark(before_circuit, ntro.workflows.sanitize_gateset())
+            before_circuit, result_data = run_benchmark(before_circuit, trbo.workflows.sanitize_gateset())
             bench_data["sanitization"] = result_data
             pprint_ddict(bench_data, "sanitization")
             if before_circuit.num_params > 600:
                 print(f"Skipping {bench_data} because it has {before_circuit.num_params} parameters")
                 continue
 
-            # run ntro
-            _, result_data = run_benchmark(before_circuit, NumericalTReductionPass(), repeats=10)
-            bench_data["ntro"] = result_data
-            pprint_ddict(bench_data, "ntro")
+            # run trbo
+            _, result_data = run_benchmark(before_circuit, trbo.workflows.no_partitioning(64), repeats=10)
+            bench_data["trbo-phase"] = result_data
+            pprint_ddict(bench_data, "trbo-default")
 
-            # run ntro-phase
-            _, result_data = run_benchmark(before_circuit, ntro.workflows.no_partitioning(32, phase_correct=True), repeats=10)
-            bench_data["ntro-phase"] = result_data
-            pprint_ddict(bench_data, "ntro-phase")
-
-            # run ntro-slow
-            _, result_data = run_benchmark(before_circuit, ntro.workflows.no_partitioning(64, phase_correct=True), repeats=10)
-            bench_data["ntro-slow"] = result_data
-            pprint_ddict(bench_data, "ntro-slow")
+            # run trbo-slow
+            _, result_data = run_benchmark(before_circuit, trbo.workflows.no_partitioning(128), repeats=10)
+            bench_data["trbo-slow"] = result_data
+            pprint_ddict(bench_data, "trbo-slow")
             
-            # run ntro-veryslow
-            _, result_data = run_benchmark(before_circuit, ntro.workflows.no_partitioning(128, phase_correct=True), repeats=10)
-            bench_data["ntro-veryslow"] = result_data
-            pprint_ddict(bench_data, "ntro-veryslow")
-
-            # run ntro-fast
-            _, result_data = run_benchmark(before_circuit, ntro.workflows.no_partitioning(16), repeats=10)
-            bench_data["ntro-fast"] = result_data
-            pprint_ddict(bench_data, "ntro-fast")
+            # run trbo-fast
+            _, result_data = run_benchmark(before_circuit, trbo.workflows.no_partitioning(32, rz_disc=[RzAsT()]), repeats=10)
+            bench_data["trbo-fast"] = result_data
+            pprint_ddict(bench_data, "trbo-fast")
 
             summary_dict[benchmark] = bench_data
-            archive_output(summary_dict, "summary.json")
+            archive_output(summary_dict, "summary-5-20-26.json")
 
 
 if __name__ == "__main__":

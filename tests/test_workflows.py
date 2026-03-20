@@ -76,19 +76,6 @@ def test_slow():
             t_count += after_circuit.gate_counts[gate]
     assert t_count == 7, f"Unexpected T count {t_count}"
 
-def test_phase_correct():
-    before_circuit = Circuit.from_file(toffoli_qasm_file)
-
-    with Compiler() as compiler:
-        after_circuit = compiler.compile(before_circuit, default(phase_correct=True))
-
-    t_count = 0
-    for gate in after_circuit.gate_counts:
-        assert gate in clifford_gates + t_gates, f"{gate} not in Clifford+T"
-        if gate in t_gates:
-            t_count += after_circuit.gate_counts[gate]
-    assert t_count == 7, f"Unexpected T count {t_count}"
-
 def test_no_paritioning():
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
