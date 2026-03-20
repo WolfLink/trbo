@@ -4,6 +4,7 @@ from bqskit.ir.gates import BarrierPlaceholder
 from time import sleep
 
 from benchmarks import *
+from trbo.clift import RzAsT
 
 def run_small_benchmarks(data, max_synth_size=4):
     summary_dict = dict()
@@ -36,7 +37,7 @@ def run_small_benchmarks(data, max_synth_size=4):
 
             # run trbo
             _, result_data = run_benchmark(before_circuit, trbo.workflows.no_partitioning(64), repeats=10)
-            bench_data["trbo-phase"] = result_data
+            bench_data["trbo-default"] = result_data
             pprint_ddict(bench_data, "trbo-default")
 
             # run trbo-slow

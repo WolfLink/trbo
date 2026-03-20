@@ -1,13 +1,13 @@
 import os
-import ntro
-from ntro.clift import t_gates, rz_gates, clifford_gates
+import trbo
+from trbo.clift import t_gates, rz_gates, clifford_gates
 import json
 from timeit import default_timer as timer
 from datetime import datetime
-from ntro.utils import *
-from ntro import NumericalTReductionPass
+from trbo.utils import *
 from bqskit.compiler import Compiler
-from ntro.gridsynth import GridsynthPass
+from bqskit import Circuit
+from trbo.gridsynth import GridsynthPass
 
 
 
@@ -213,7 +213,7 @@ class BenchmarkingMultistartPass(BasePass):
         best_data = None
         best_t = None
         best_rz = None
-        futures = get_runtime().map(ntro.utils._run_workflow_on_circuit, [getrandbits(32) for _ in range(self.multistarts)], workflow=self.workflow, circuit=circuit, data=data)
+        futures = get_runtime().map(trbo.utils._run_workflow_on_circuit, [getrandbits(32) for _ in range(self.multistarts)], workflow=self.workflow, circuit=circuit, data=data)
         
         attempts = FutureQueue(futures, self.multistarts)
         results = []
