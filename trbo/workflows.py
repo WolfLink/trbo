@@ -39,7 +39,7 @@ def sanitize_gateset(synthesize_size=3):
                  ]),
             ]
 
-def no_partitioning(multistarts=32, sanitize=True, phase_correct=False, utry=None, strict_opt=False, rz_disc=None):
+def no_partitioning(multistarts=64, sanitize=True, phase_correct=False, utry=None, strict_opt=False, rz_disc=None):
     passes = []
     if utry is not None:
         passes += [SetDataPass("utry", utry)]
@@ -56,7 +56,7 @@ def no_partitioning(multistarts=32, sanitize=True, phase_correct=False, utry=Non
         passes += [TRbOPass(multistarts=multistarts)]
     return passes
 
-def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=True, strict_opt=False, rz_disc=None):
+def default(multistarts=64, partition_size=4, sanitize=True, phase_correct=True, strict_opt=False, rz_disc=None):
     if phase_correct:
         passes = [QuickPartitioner(partition_size), 
                   ForEachBlockPass([
@@ -74,21 +74,14 @@ def default(multistarts=32, partition_size=4, sanitize=True, phase_correct=True,
     return passes
 
 def fast():
-    # Doesn't add phase correction and doesn't prefer Clifford gates over T gates
+    # Doesn't prefer Clifford gates over T gates
     # This pass will run quickly and reduce the need to use gridsynth
     # but it won't be able to achieve optimal T-counts on small circuits
-    return default(16, 4, phase_correct=True, rz_disc=[RzAsT()])
+    return default(32, 4, phase_correct=True, rz_disc=[RzAsT()])
 
 def slow():
     # Uses more mutlistarts than default
     # Uses strict_opt which will attempt to convert use Clifford instead of T gates
     # even when there will be some leftover Rz gates (this usually is a large compute
     # cost for a small benefit).
-    # Also enables phase correction.
-    return default(64, 6, phase_correct=True, strict_opt=True)
-
-def veryslow():
-    # Same as slow except:
-    # Uses an extreme amount of multistarts.
-    # Also pushes the limit of reasonable partition sizes.
-    return default(128, 7, phase_correct=True, strict_opt=True)
+    return default(128, 6, phase_correct=True, strict_opt=True)

@@ -150,10 +150,10 @@ def better_min_t_count_circuit(a, b):
     """
 
     # if one circuit is None and the other isn't, choose the one that isn't None
-    if a is None:
-        return True
-    elif b is None:
+    if b is None:
         return False
+    elif a is None:
+        return True
 
     # If both circuits are not None...
     # choose the circuit that has the least gates that are outside of the cliff+T+Rz set (ideally both circuits have 0)
@@ -166,10 +166,10 @@ def better_min_t_count_circuit(a, b):
         if gate not in clifford_gates + t_gates + rz_gates:
             bgc += b.gate_counts[gate]
 
-    if agc > bgc:
-        return True
-    elif bgc > agc:
+    if bgc > agc:
         return False
+    elif agc > bgc:
+        return True
 
 
     # If both circuits have the same count of gates outside cliff+T+Rz (ideally both should have 0)...
@@ -185,13 +185,13 @@ def better_min_t_count_circuit(a, b):
             if gate in gate_list:
                 bgc += b.gate_counts[gate]
 
-        if agc > bgc:
-            return True
-        elif bgc > agc:
+        if bgc > agc:
             return False
+        elif agc > bgc:
+            return True
 
 
-    # If the tie persists this far just pick one
+    # If the tie persists this far just let pick one
     return False
         
         

@@ -44,7 +44,7 @@ class TReductionByOptimiationPass(BasePass):
     def __init__(
         self,
         success_threshold: float = 1e-6,
-        multistarts: int = 32,
+        multistarts: int = 64,
         second_pass_starts: int | None = None,
         rz_discretizations = None,
         strict_opt = False, # if True it will be slower at a marginal improvement in T count
