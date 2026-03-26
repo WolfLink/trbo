@@ -1,1 +1,0 @@
-Unable to complete comparison in compare_quippers(['Adder128_after_heavy', 'Adder128_before', 'Adder128_after_light'], /home/wolflink/scratch/ntro/examples/quipper_circuits/optimizer/QFT_and_Adders, finished_data/QFT_and_Adders/test_qasm, finished_data/QFT_and_Adders/test_data)SyntaxError()

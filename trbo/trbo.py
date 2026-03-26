@@ -43,10 +43,11 @@ _logger = logging.getLogger(__name__)
 class TReductionByOptimiationPass(BasePass):
     def __init__(
         self,
-        success_threshold: float = 1e-6,
         multistarts: int = 64,
+        success_threshold: float = 1e-6,
         second_pass_starts: int | None = None,
-        rz_discretizations = None,
+        rz_disc = None,
+        comparator = better_min_t_count_circuit,
         strict_opt = False, # if True it will be slower at a marginal improvement in T count
         **kwargs,
     ) -> None:
@@ -63,12 +64,13 @@ class TReductionByOptimiationPass(BasePass):
 
         self.acceptable_gates = clifford_gates + t_gates + rz_gates
 
-        if rz_discretizations is None:
+        if rz_disc is None:
             self.rz_discretizations = [RzAsT(), RzAsCliff()]
         else:
-            self.rz_discretizations = rz_discretizations
+            self.rz_discretizations = rz_disc
         self.multistarts = multistarts
         self.strict_opt = strict_opt
+        self.comparator = comparator
 
     async def validated_optimization(self, circuit, target, N, discretization, threshold, initial_params=[], blacklist=None):
         # compute numbers of starts
@@ -123,6 +125,8 @@ class TReductionByOptimiationPass(BasePass):
 
     def round_circuit(self, circuit, target, N, discretization, blacklist, threshold):
         indices = np.argsort(discretization.param_distances(circuit.params, blacklist)) + 1
+        expectations = discretization.param_distances(circuit.params, blacklist)
+
         op_index = 0
         for cycle, op in circuit.operations_with_cycles():
             op_index += len(op.params)
@@ -132,7 +136,11 @@ class TReductionByOptimiationPass(BasePass):
                 continue
             if op_index in indices[:N]:
                 if op.gate in rz_gates:
+                    rzu = op.get_unitary()
                     rounded = discretization.nearest_gate(op.params[0])
+                    rdu = rounded.get_unitary()
+                    if rzu.get_distance_from(rdu) > threshold and rzu.get_distance_from(rdu) > expectations[op_index - 1]:
+                        print(f"WARNING rounding angle {op.params[0]} at index {op_index - 1}. Expected {expectations[op_index - 1]} but got {rzu.get_distance_from(rdu)}")
                     circuit.replace_gate(
                         (cycle, op.location[0]), rounded, op.location
                     )
@@ -144,7 +152,7 @@ class TReductionByOptimiationPass(BasePass):
             if circuit.get_unitary(test_params).get_distance_from(target) < circuit.get_unitary().get_distance_from(target):
                 circuit.set_params(test_params)
         if not circuit.get_unitary().get_distance_from(target) <= threshold:
-            print(f"ERROR got {circuit.get_unitary().get_distance_from(target)} > {threshold}")
+            print(f"WARNING circuit rounding resulted in {circuit.get_unitary().get_distance_from(target)} > {threshold}.")
 
 
     async def optimize_for_discretization(self, circuit, target, discretization, remainders=None, threshold=None, leave_unrounded=0):
@@ -189,6 +197,7 @@ class TReductionByOptimiationPass(BasePass):
             if N < max_N and score < threshold and remainders is not None and len(remainders) > 0:
                 if len(remainders) == 1:
                     test_circuit = trial_circuit.copy()
+                    test_circuit.set_params(trial_params)
                     self.round_circuit(test_circuit, target, N, discretization, blacklist, threshold)
                     test_blacklist, _ = gen_blacklist(test_circuit)
                     score, _ = await self.validated_optimization(test_circuit, target, max_N - N, remainders[0], threshold, [test_circuit.params], test_blacklist)
@@ -215,18 +224,22 @@ class TReductionByOptimiationPass(BasePass):
         self.round_circuit(best_circuit, target, best_N, discretization, blacklist, threshold)
 
         # if we have remainders, we are not done yet
+        best_circuit.unfold_all()
         if best_N < max_N and remainders is not None and len(remainders) > 0:
             if len(remainders) == 1:
                 test_blacklist, _ = gen_blacklist(best_circuit)
-                _, test_params = await self.validated_optimization(best_circuit, target, max_N - N, remainders[0], threshold, [best_circuit.params], test_blacklist)
-                self.round_circuit(best_circuit, target, max_N - N, remainders[0], test_blacklist, threshold)
+                _, test_params = await self.validated_optimization(best_circuit, target, max_N - best_N, remainders[0], threshold, [best_circuit.params], test_blacklist)
+                self.round_circuit(best_circuit, target, max_N - best_N, remainders[0], test_blacklist, threshold)
+            elif len(remainders) > 1:
+                return await self.optimize_for_discretization(best_circuit, target, remainders[0], remainders[1:], threshold, leave_unrounded)
+
  
         # do some final fine-tuning of the parameters
         test_params = CeresMinimizer(ftol=5e-16, gtol=1e-15).minimize(HilbertSchmidtResidualsGenerator().gen_cost(best_circuit, target), best_circuit.params)
         if best_circuit.get_unitary(test_params).get_distance_from(target) < best_circuit.get_unitary().get_distance_from(target):
             best_circuit.set_params(test_params)
         if not best_circuit.get_unitary().get_distance_from(target) <= threshold:
-            print(f"ERROR got {best_circuit.get_unitary().get_distance_from(target)} > {threshold}")
+            print(f"ERROR rounded and post-processed circuit ended up with {best_circuit.get_unitary().get_distance_from(target)} > {threshold}")
         best_circuit.unfold_all()
         return best_circuit
 
@@ -261,12 +274,12 @@ class TReductionByOptimiationPass(BasePass):
             remainders = self.rz_discretizations[:i]
             candidate_circuit = await self.optimize_for_discretization(initial_circuit, utry, discretization, remainders, threshold, leave_unrounded)
             candidate_circuit.unfold_all()
-            if not discretization.success_comparator(best_circuit, candidate_circuit):
+            if not self.comparator(best_circuit, candidate_circuit):
                 break
             best_circuit = candidate_circuit
             rz_count = 0
             for gate in candidate_circuit.gate_counts:
-                if gate not in clifford_gates + t_gates:
+                if gate in rz_gates:
                     rz_count += candidate_circuit.gate_counts[gate]
             leave_unrounded = rz_count
             if leave_unrounded > 0 and not self.strict_opt:

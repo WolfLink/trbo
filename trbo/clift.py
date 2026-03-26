@@ -76,9 +76,6 @@ class RzAsT(RzDiscretization):
     def residuals_generator(self, N: int, blacklist: Optional[[int]] = None) -> CostFunctionGenerator:
         return RoundSmallestNResidualsGenerator(N, np.pi / 4, blacklist)
 
-    def success_comparator(self, a, b) -> bool:
-        return better_min_t_count_circuit(a, b)
-
 class RzAsCliff(RzDiscretization):
     def nearest_gate(self, rz_angle: float) -> CircuitGate:
         return circuit_for_rounded_val(rz_angle, enable_t = False)
@@ -91,9 +88,6 @@ class RzAsCliff(RzDiscretization):
 
     def residuals_generator(self, N: int, blacklist: Optional[[int]] = None) -> CostFunctionGenerator:
         return RoundSmallestNResidualsGenerator(N, np.pi / 2, blacklist)
-
-    def success_comparator(self, a, b) -> bool:
-        return better_min_t_count_circuit(a, b)
 
 def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
     """
@@ -112,7 +106,7 @@ def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
     val = val % (2 * np.pi)
     if not enable_t:
         # cliffords
-        rounded_val = np.round(val * 2 / np.pi)
+        rounded_val = int(np.round(val * 2 / np.pi)) % 4
         if rounded_val == 1:
             circuit.append_gate(SGate(), 0)
         elif rounded_val == 2: 
@@ -120,7 +114,7 @@ def circuit_for_rounded_val(val: float, enable_t: bool) -> CircuitGate:
         elif rounded_val == 3:
             circuit.append_gate(SdgGate(), 0)
     else:
-        rounded_val = np.round(val * 4 / np.pi)
+        rounded_val = int(np.round(val * 4 / np.pi) ) % 8
         if rounded_val < 4:
             if rounded_val >= 2:
                 circuit.append_gate(SGate(), 0)

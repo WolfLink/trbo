@@ -13,6 +13,3 @@ class RzDiscretization():
 
     def residuals_generator(self, N: int, dim: int, blacklist: Optional[[int]] = None) -> CostFunctionGenerator:
         raise NotImplementedError
-
-    def success_comparator(self, a, b) -> bool:
-        raise NotImplementedError

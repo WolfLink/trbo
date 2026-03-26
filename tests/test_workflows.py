@@ -15,6 +15,8 @@ def test_sanitize_synthesized():
     with Compiler() as compiler:
         after_circuit = compiler.compile(before_circuit, sanitize_gateset())
 
+    assert before_circuit.get_unitary().get_distance_from(after_circuit.get_unitary()) < 1e-6, "Invalid circuit returned"
+
     for gate in after_circuit.gate_counts:
         assert gate in clifford_gates + t_gates + rz_gates, f"{gate} not in Clifford+T+Rz"
 
@@ -35,6 +37,8 @@ def test_sanitize_needs_synthesis():
     with Compiler() as compiler:
         after_circuit = compiler.compile(before_circuit, sanitize_gateset())
 
+    assert before_circuit.get_unitary().get_distance_from(after_circuit.get_unitary()) < 1e-6, "Invalid circuit returned"
+
     for gate in after_circuit.gate_counts:
         assert gate in clifford_gates + t_gates + rz_gates, f"{gate} not in Clifford+t+Rz"
 
@@ -43,6 +47,8 @@ def test_default():
 
     with Compiler() as compiler:
         after_circuit = compiler.compile(before_circuit, default())
+
+    assert before_circuit.get_unitary().get_distance_from(after_circuit.get_unitary()) < 1e-6, "Invalid circuit returned"
 
     t_count = 0
     for gate in after_circuit.gate_counts:
@@ -57,6 +63,8 @@ def test_fast():
     with Compiler() as compiler:
         after_circuit = compiler.compile(before_circuit, fast())
 
+    assert before_circuit.get_unitary().get_distance_from(after_circuit.get_unitary()) < 1e-6, "Invalid circuit returned"
+
     t_count = 0
     for gate in after_circuit.gate_counts:
         assert gate in clifford_gates + t_gates, f"{gate} not in Clifford+T"
@@ -69,18 +77,22 @@ def test_slow():
     with Compiler() as compiler:
         after_circuit = compiler.compile(before_circuit, slow())
 
+    assert before_circuit.get_unitary().get_distance_from(after_circuit.get_unitary()) < 1e-6, "Invalid circuit returned"
+
     t_count = 0
     for gate in after_circuit.gate_counts:
         assert gate in clifford_gates + t_gates, f"{after_circuit.gate_counts[gate]} x {gate} not in Clifford+T"
         if gate in t_gates:
             t_count += after_circuit.gate_counts[gate]
-    assert t_count == 7, f"Unexpected T count {t_count}"
+    assert t_count == 7, f"Unexpected T count {t_count} from {after_circuit.gate_counts}"
 
 def test_no_paritioning():
     before_circuit = Circuit.from_file(toffoli_qasm_file)
 
     with Compiler() as compiler:
         after_circuit = compiler.compile(before_circuit, no_partitioning())
+
+    assert before_circuit.get_unitary().get_distance_from(after_circuit.get_unitary()) < 1e-6, "Invalid circuit returned"
 
     t_count = 0
     for gate in after_circuit.gate_counts:
@@ -107,6 +119,9 @@ def test_no_partitioning_target_unitary():
 
     with Compiler() as compiler:
         after_circuit = compiler.compile(before_circuit, no_partitioning(utry=toffoli_u))
+
+        
+    assert before_circuit.get_unitary().get_distance_from(after_circuit.get_unitary()) < 1e-6, "Invalid circuit returned"
 
     t_count = 0
     for gate in after_circuit.gate_counts:

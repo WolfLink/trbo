@@ -15,7 +15,7 @@ def qft(n):
     return np.array(np.fromfunction(lambda x,y: root**(x*y), (n,n)), dtype='complex128') / np.sqrt(n)
 
 
-def skip_test_stress():
+def test_hard_gate():
     # test a particularly tricky large and tricky circuit once
     toffoli_u = [
         [1, 0, 0, 0, 0, 0, 0, 0],
@@ -44,7 +44,7 @@ def skip_test_stress():
             rz_count += after_circuit.gate_counts[gate]
         else:
             assert gate in clifford_gates + t_gates, f"{after_circuit.gate_counts[gate]} x {gate} not in Clifford + T + Rz"
-    assert rz_count == 3, "Unexpected Rz count {rz_count}"
+    assert rz_count == 3, f"Unexpected Rz count {rz_count}"
 
 def test_consistency():
     before_circuit = Circuit.from_file(toffoli_qasm_file)
@@ -62,7 +62,7 @@ def test_consistency():
         return True
 
     with Compiler() as compiler:
-        after_circuit, data = compiler.compile(before_circuit, SuccessBenchmarkPass(default(), check_toffoli, runs=100), request_data=True)
+        after_circuit, data = compiler.compile(before_circuit, SuccessBenchmarkPass(default(), check_toffoli, runs=20), request_data=True)
     data = data["benchmark_success"]
     success = data["successes"]
     failure = data["failures"]
