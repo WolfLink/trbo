@@ -47,4 +47,6 @@ We also provide `trbo.workflows.fast()` which provides lower-quality results at 
 
 If you want to try tweaking settings we recommend starting with changin `multistarts`. You can also use `trbo.utils.MultiStartPass` to run the entire `trbo` routine multiple times and get the best result, which is sometimes more effective than just increasing the `multistarts` value.
 
+If you are experienced with BQSKit, the main Pass is `trbo.trbo.TRbOPass`, and we recommend looking at `trbo/workflows.py` for suggestions on how to use it.
+
 For more details on input, output, and working with quantum circuits in BQSKit, see [the BQSKit documentation](https://github.com/BQSKit/bqskit).
