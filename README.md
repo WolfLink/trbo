@@ -3,8 +3,8 @@
 This software implements a technique developed by Marc Davis to use numerical optimization to reduce the number of T gates in a quantum circuit. This is implemented as a BQSKit pass.
 
 ## Prerequisites
-- BQSKit (https://github.com/BQSKit/bqskit)
-- gridsynth (optional) (https://www.mathstat.dal.ca/~selinger/newsynth/) or `pip install pygridsynth`
+- [BQSKit](https://github.com/BQSKit/bqskit) `pip install bqskit`
+- [gridsynth (optional)](https://www.mathstat.dal.ca/~selinger/newsynth/) `pip install pygridsynth`
 
 ## Installation
 
