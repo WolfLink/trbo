@@ -2,10 +2,6 @@
 
 This software implements a technique developed by Marc Davis to use numerical optimization to reduce the number of T gates in a quantum circuit. This is implemented as a BQSKit pass.
 
-## Prerequisites
-- [BQSKit](https://github.com/BQSKit/bqskit) `pip install bqskit`
-- [gridsynth (optional)](https://www.mathstat.dal.ca/~selinger/newsynth/) `pip install pygridsynth`
-
 ## Installation
 
 This is available for Python 3.10+ on Linux, macOS, and Windows.
@@ -13,6 +9,11 @@ This is available for Python 3.10+ on Linux, macOS, and Windows.
 ```sh
 git clone https://github.com/WolfLink/trbo
 pip install ./trbo
+```
+
+Optionally, if you want to use `trbo.gridsynth.GridsynthPass`:
+```sh
+pip install gridsynth
 ```
 
 ## Basic Usage
