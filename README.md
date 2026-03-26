@@ -1,4 +1,4 @@
-# T Reduction by Optimization BQSKit Pass
+# T Reduction by Optimization
 
 This software implements a technique developed by Marc Davis to use numerical optimization to reduce the number of T gates in a quantum circuit. This is implemented as a BQSKit pass.
 
