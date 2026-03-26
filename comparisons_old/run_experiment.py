@@ -1,0 +1,392 @@
+import os
+import traceback
+import json
+from timeit import default_timer as timer
+
+import numpy as np
+
+import bqskit
+from bqskit.compiler import CompilationTask, Compiler
+from bqskit.passes import ForEachBlockPass, QuickPartitioner, LEAPSynthesisPass, ZXZXZDecomposition, GroupSingleQuditGatePass, UnfoldPass, NOOPPass, IfThenElsePass, WidthPredicate, GroupSingleQuditGatePass, QFASTDecompositionPass
+
+from ntro import NumericalTReductionPass
+from ntro.gridsynth import GridsynthPass
+#from ntro.utils import ComputeErrorThresholdPass, LogIntermediateGateCountsPass, UnwrapForEachPassDown
+from ntro.utils import *
+from ntro.clift import clifford_gates, t_gates, rz_gates
+
+from parse_quipper import parse_quipper_file
+
+from data_collecting import log_ddict_to_tsv
+
+def sort_inputs_by_qubits(file_list, max_qubits=None):
+    files_by_qubit_count = dict()
+    qubit_counts = []
+    for file in file_list:
+        if os.path.isdir(file):
+            continue
+        _, ext = os.path.splitext(file)
+        if ext in [".quipper", ""]:
+            og_circuit = parse_quipper_file(file)
+            num_qubits = int(og_circuit.num_qudits)
+            ar = [] if num_qubits not in qubit_counts else files_by_qubit_count[num_qubits]
+            ar.append(file)
+            files_by_qubit_count[num_qubits] = ar
+            qubit_counts.append(num_qubits)
+        elif ext in [".npy", ".npz"]:
+            unitary = np.load(file)
+            num_qubits = int(np.log(np.shape(unitary)[0]) / np.log(2))
+            ar = [] if num_qubits not in qubit_counts else files_by_qubit_count[num_qubits]
+            ar.append(file)
+            files_by_qubit_count[num_qubits] = ar
+            qubit_counts.append(num_qubits)
+
+    output = []
+    mi = min(qubit_counts)
+    ma = max(qubit_counts)
+    if max_qubits:
+        ma = min(ma, max_qubits)
+    for i in range(mi, ma + 1):
+        if i in qubit_counts:
+            for file in files_by_qubit_count[i]:
+                output.append(file)
+    return output
+
+def run_experiment(source_file, threshold=None, block_size=None):
+    source_file = os.path.normpath(source_file)
+    filename = os.path.basename(source_file)
+    name, ext = os.path.splitext(filename)
+    data_dict = {"name" : name, "ext" : ext, "filepath" : source_file}
+    if threshold is not None:
+        data_dict["threshold"] = threshold
+    if block_size is not None:
+        data_dict["block_size"] = block_size
+
+
+    print_title(f"{name} - parse ({block_size}, {threshold})")
+    og_circuit = None
+    if ext in [".quipper", ""]:
+        try:
+            og_circuit = parse_quipper_file(source_file)
+            data_dict["ext"] = ".quipper"
+        except:
+            data_dict["error"] = traceback.format_exc()
+            return data_dict
+    elif ext in [".npy", ".npz"]:
+        print_title(f"{name} - synthesis ({block_size}, {threshold})")
+        unitary = np.load(source_file)
+        start = timer()
+        #model = bqskit.MachineModel(num_qudits=6, gate_set=clifford_gates + t_gates + rz_gates)
+        zxdecomp_passes = [
+                GroupSingleQuditGatePass(),
+                ForEachBlockPass([
+                    IfThenElsePass(
+                        WidthPredicate(2),
+                        ZXZXZDecomposition(),
+                        ),
+                    ]),
+                UnfoldPass(),
+                ]
+        num_qubits = int(np.log(np.shape(unitary)[0]) / np.log(2))
+        if num_qubits <= 3 and False:
+            og_circuit = bqskit.compile(unitary, max_synthesis_size=6)
+        elif num_qubits <= 5 and False:
+            model = bqskit.MachineModel(num_qudits=6, coupling_graph=[(i, i+1) for i in range(5)])
+            og_circuit = bqskit.compile(unitary, machine_model=model, max_synthesis_size=6)
+        else:
+            workflow = [
+                    QFASTDecompositionPass(),
+                    ForEachBlockPass([LEAPSynthesisPass()]),
+                    UnfoldPass(),
+                    ]
+            with Compiler() as compiler:
+                og_circuit = bqskit.Circuit.from_unitary(unitary)
+                og_circuit = compiler.compile(og_circuit, workflow)
+
+        with Compiler() as compiler:
+            og_circuit = compiler.compile(og_circuit, zxdecomp_passes)
+        data_dict["ext"] = ".npy"
+    elif ext in [".qasm"]:
+        data_dict["error"] = "I haven't implemented qasm parsing yet.  Just need to let bqskit handle it..."
+        return data_dict
+    else:
+        data_dict["error"] = f"Unknown filetype: {ext}"
+        return data_dict
+
+    # validate the circuits gates
+    # we want only circuits in the Clifford + T + Rz gate set
+    # any specifically with at least one Rz gate for us to optimize
+    found_rz = False
+    found_invalid = False
+    for gate in og_circuit.gate_counts:
+        if gate in rz_gates:
+            found_rz = True
+        elif gate not in clifford_gates + t_gates:
+            found_invalid = True
+    
+    if found_invalid:
+        data_dict["error"] = f"Skipping circuit {name} because it contains a gate that isn't Clifford+T+Rz ({og_circuit.gate_counts})"
+        print(data_dict['error'])
+        exit(0)
+        return data_dict
+    elif not found_rz:
+        data_dict["error"] = f"Skipping circuit {name} because it is already in Clifford+T (nothing to optimize!)"
+        return data_dict
+
+    data_dict["og_gates"] = og_circuit.gate_counts
+    data_dict["og_qasm"] = og_circuit.to("qasm")
+
+    print_title(f"{name} - prefix ({block_size}, {threshold})")
+    with Compiler() as compiler:
+        check_circuit, pass_data = compiler.compile(og_circuit, [QuickPartitioner(12)], request_data=True)
+        data_dict["num_partitions"] = len(list(check_circuit.operations_with_cycles()))
+
+    #if ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(check_circuit) < 5e-6:
+    #    data_dict["error"] = f"Skipping circuit {name} because it required too tight an error threshold {ComputeErrorThresholdPass(target_threshold=threshold).get_threshold(og_circuit)} considering a threshold of {threshold} and {data_dict['num_partitions']} partitions"
+    #    return data_dict
+    
+    opt_circuit = og_circuit
+    results = []
+    for i, pass_list in enumerate(pass_lists):
+        if i == 0:
+            pass_name = "gridsynth"
+        elif i == 1:
+            pass_name = "ntro"
+        else:
+            pass_name = "UNKNOWN"
+        print_title(f"{name} - {pass_name} ({block_size}, {threshold})")
+
+        pass_dict = dict()
+        start = timer()
+        intermediate_gate_counts = None
+        intermediate_block_counts = None
+        gridsynth_stats = None
+        try:
+            with Compiler() as compiler:
+                result_circuit, pass_data = compiler.compile(og_circuit, pass_list, request_data=True)
+                if "ForEachBlockPass_data" in pass_data:
+                    for item in pass_data["ForEachBlockPass_data"]:
+                        for item_item in item:
+                            if "subcircuit_data" in item_item:
+                                print(item_item["subcircuit_data"])
+                            if "intermediate_gate_counts" in item_item:
+                                if intermediate_gate_counts is None:
+                                    intermediate_gate_counts = item_item["intermediate_gate_counts"]
+                                else:
+                                    for key in item_item["intermediate_gate_counts"]:
+                                        if key in intermediate_gate_counts:
+                                            intermediate_gate_counts[key] += item_item["intermediate_gate_counts"][key]
+                                        else:
+                                            intermediate_gate_counts[key] = item_item["intermediate_gate_counts"][key]
+                            if "intermediate_block_count" in item_item:
+                                if intermediate_block_counts is None:
+                                    intermediate_block_counts = 0
+                                intermediate_block_counts += item_item["intermediate_block_count"]
+                            if "gridsynth_stats" in item_item:
+                                if gridsynth_stats is None:
+                                    gridsynth_stats = {"rz" : [], "t" : [], "e" : [], "d" : [], "thresh" : []}
+                                stats = item_item["gridsynth_stats"]
+                                gridsynth_stats["rz"].append(stats["rz"])
+                                gridsynth_stats["t"].append(stats["t"])
+                                gridsynth_stats["e"].append(stats["e"])
+                                gridsynth_stats["d"].append(stats["d"])
+                                gridsynth_stats["thresh"].append(stats["thresh"])
+
+
+        except:
+            pass_dict["error"] = traceback.format_exc()
+            results.append(pass_dict)
+            continue
+        opt_circuit = result_circuit
+        stop = timer()
+        result_circuit = opt_circuit.copy()
+        result_circuit.unfold_all()
+        pass_dict = {"gates" : result_circuit.gate_counts, "qasm" : result_circuit.to("qasm"), "time" : stop - start}
+        for gate in result_circuit.gate_counts:
+            if gate not in clifford_gates + t_gates:
+                if result_circuit.gate_counts[gate] > 0:
+                    print(f"Pass {pass_name} failed optimization.  Gate {gate} has count {result_circuit.gate_counts[gate]}")
+                    print(result_circuit.gate_counts)
+                    return None
+        if intermediate_gate_counts is not None:
+            pass_dict["intermediate_gate_counts"] = intermediate_gate_counts
+        if intermediate_block_counts is not None:
+            pass_dict["intermediate_block_count"] = intermediate_block_counts
+        if gridsynth_stats is not None:
+            pass_dict["gridsynth_stats"] = gridsynth_stats
+        if opt_circuit.dim > 0 and opt_circuit.dim <= 1024:
+            try:
+                pass_dict["distance"] = opt_circuit.get_unitary().get_distance_from(og_circuit.get_unitary())
+                pass_dict["distance_type"] = "exact"
+            except:
+                print(f"Found an error with dim: {opt_circuit.dim}")
+                raise
+        elif "distances" in pass_data:
+            pass_dict["distance"] = np.sum(pass_data["distance_list"])
+            pass_dict["distance_type"] = "upper_bound"
+        elif "error" in pass_data:
+            pass_dict["distance"] = pass_data["error"]
+            pass_dict["distance_type"] = "upper_bound"
+
+        results.append(pass_dict)
+    data_dict["results"] = results
+    try:
+        with Compiler() as compiler:
+            noop_passes = [ForEachBlockPass([NOOPPass()], calculate_error_bound=True)]
+            _, pass_data = compiler.compile(check_circuit, noop_passes, request_data=True)
+            if "error" in pass_data:
+                data_dict["control_dist"] = pass_data["error"]
+    except:
+        pass
+
+
+    return data_dict
+
+def gate_count_str(name, pdict):
+    pass_rz = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate in rz_gates])
+    pass_t = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate in t_gates])
+    pass_cliff = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate in clifford_gates])
+    pass_other = np.sum([pdict["gates"][gate] for gate in pdict["gates"] if gate not in rz_gates + clifford_gates + t_gates + rz_gates])
+    printstr = f"{name}:\tRz: {pass_rz}\tT: {pass_t}\tCliff: {pass_cliff}\tOther: {pass_other}"
+    if "time" in pdict:
+        printstr += f"({pdict['time']}s)"
+    if "distance" in pdict:
+        printstr += f"\tDist: {pdict['distance']} ({pdict['distance_type']})"
+    return printstr
+
+def pprint_ddict(ddict, title=None, pass_titles = None):
+    print("="*10)
+    if title is not None:
+        print(title)
+    if "error" in ddict:
+        print(ddict["error"])
+        print("="*10)
+        return
+    og_rz = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate in rz_gates])
+    og_t = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate in t_gates])
+    og_cliff = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate in clifford_gates])
+    og_other = np.sum([ddict["og_gates"][gate] for gate in ddict["og_gates"] if gate not in rz_gates + clifford_gates + t_gates + rz_gates])
+    print(f"Start:\tRz: {og_rz}\tT: {og_t}\tCliff: {og_cliff}\tOther: {og_other} Partitions: {ddict['num_partitions']}")
+    for i, pdict in enumerate(ddict["results"]):
+        if "error" in pdict:
+            print(pdict["error"])
+            continue
+        if pass_titles:
+            name = pass_titles[i]
+        else:
+            name = f"Pass {i}"
+        if "intermediate_gate_counts" in pdict:
+            block_data = f"({pdict['intermediate_block_count']} blocks)"
+            print(gate_count_str(name+"-I " + block_data, {"gates" : pdict["intermediate_gate_counts"]}))
+        if "gridsynth_stats" in pdict and False:
+            rz = np.array(pdict["gridsynth_stats"]["rz"])
+            t = np.array(pdict["gridsynth_stats"]["t"])
+            d = np.array(pdict["gridsynth_stats"]["d"])
+            e = np.array(pdict["gridsynth_stats"]["e"])
+            thresh = np.array(pdict["gridsynth_stats"]["thresh"])
+            print(f"{name}-gridsynth Rz: {np.min(rz)}<{np.mean(rz):.3}<{np.max(rz)} ({np.sum(rz)})\tT: {np.min(t)}<{np.mean(t):.3}<{np.max(t)} ({np.sum(t)})\td: {np.min(d):.3}<{np.mean(d):.3}<{np.max(d):.3}\tthresh: {np.min(thresh):.3}<{np.mean(thresh):.3}<{np.max(thresh):.3}\te: {np.min(e):.3}<{np.mean(e):.3}<{np.max(e):.3}")
+
+        block_data = f" ({ddict['num_partitions']} blocks)"
+        print(gate_count_str(name + block_data, pdict))
+
+    print("="*10)
+
+
+def save_qasm_from_ddict(ddict, pass_titles, base_path=None):
+    if base_path is None:
+        base_path = "./"
+
+    for i, pdict in enumerate(ddict["results"]):
+        path = os.path.join(base_path, f"{pass_titles[i]}.qasm")
+        print(f"writing to {path}")
+        with open(path, "w+") as f:
+            f.write(pdict["qasm"])
+
+
+def print_title(text, length=80):
+    titlestr = " " + text + " "
+    before_len = (length - len(titlestr)) // 2
+    after_len = (length - len(titlestr) - before_len)
+    print("=" * before_len + titlestr + "=" * after_len)
+
+
+
+def run_benchmarks(files=[], thresholds=[1e-3,1e-4,1e-5], block_sizes=[4, 3, 5, 6, 7, 8], path=None):
+    if path is None:
+        path = "./"
+    elif not os.path.exists(path):
+        os.makedirs(path)
+
+    checkpoint = []
+    try:
+        with open(os.path.join(path, "checkpoint.json"), "r") as f:
+            checkpoint = json.load(f)
+    except:
+        pass
+
+    for indb, block_size in enumerate(block_sizes):
+        for indt, threshold in enumerate(thresholds):
+            for indf, file in enumerate(files):
+                if f"{(block_size, threshold, file)}" in checkpoint:
+                    continue
+                blacklist = ["2048", "1024"]
+                triggered = False
+                for trigger in blacklist:
+                    if trigger in file:
+                        triggered = True
+                        break
+                if triggered:
+                    continue
+                source_file = os.path.normpath(file)
+                filename = os.path.basename(source_file)
+                name, ext = os.path.splitext(filename)
+                gridsynth_passes = [
+                        QuickPartitioner(12),
+                        ComputeErrorThresholdPass(threshold),
+                        ForEachBlockPass([
+                            UnwrapForEachPassDown(),
+                            GridsynthPass(gridsynth_binary="../examples/gridsynth")
+                            ], calculate_error_bound=True),
+                        UnfoldPass(),
+                        SaveQasmPass(os.path.join(path, name + f"-BS{block_size}-T{threshold}-gsynth.qasm")),
+                        ]
+                ntro_passes = [
+                        QuickPartitioner(block_size),
+                        ForEachBlockPass([
+                            NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=threshold),
+                            LogIntermediateGateCountsPass(),
+                            ], calculate_error_bound=True),
+                        UnfoldPass(),
+                        ] + gridsynth_passes
+
+
+
+                ntro_beta_passes = [
+                        QuickPartitioner(block_size),
+                        QuickPartitioner(6),
+                        ForEachBlockPass([
+                            ForEachBlockPass([
+                                NumericalTReductionPass(full_loops=1, search_method="n_sum", backup=False, profiling_mode=False, success_threshold=1e-6),
+                                ]),
+                            LogIntermediateGateCountsPass(),
+                            UnfoldPass(),
+                            UnwrapForEachPassDown(),
+                            ]),
+                        SaveQasmPass(os.path.join(path, name + f"-BS{block_size}-T{threshold}-ntro-int.qasm")),
+                        ComputeErrorThresholdPass(threshold),
+                        ForEachBlockPass([
+                            UnwrapForEachPassDown(),
+                            GridsynthPass(gridsynth_binary="../examples/gridsynth"),
+                            ]),
+                        UnfoldPass(),
+                        SaveQasmPass(os.path.join(path, name + f"-BS{block_size}-T{threshold}-ntro-fin.qasm")),
+                        ]
+
+               
+                passes = [gridsynth_passes, ntro_beta_passes]
+                ddict = run_experiment(file, passes, threshold, block_size)
+                pprint_ddict(ddict, os.path.basename(file), ["gridsynth", "ntro"])
+                log_ddict_to_tsv(os.path.basename(file), ddict, path)
+                with open("checkpoint.json", "w") as f:
+                    checkpoint.append(f"{(block_size, threshold, file)}")
+                    json.dump(checkpoint, f)

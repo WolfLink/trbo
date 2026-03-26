@@ -8,6 +8,7 @@ from trbo.utils import *
 from bqskit.compiler import Compiler
 from bqskit import Circuit
 from trbo.gridsynth import GridsynthPass
+from parse_quipper import *
 
 
 
@@ -32,7 +33,7 @@ def synthetiq_workflow(partition_size=4):
                 UnfoldPass(),
                 ]
 
-def judge_circuit(circuit, og=None, distlimit=8):
+def judge_circuit(circuit, og=None, distlimit=8, gridsynth=False):
     circuit_results = dict()
     if og is not None and circuit.num_qudits <= distlimit:
         circuit_results["dist"] = og.get_unitary().get_distance_from(circuit.get_unitary())
@@ -60,7 +61,7 @@ def judge_circuit(circuit, og=None, distlimit=8):
     circuit_results["qubit_count"] = counts_by_qubit_count
 
     # Use Gridsynth if the circuit is clifford+t+rz
-    if unknown == 0 and rz > 0:
+    if unknown == 0 and rz > 0 and gridsynth:
         start = timer()
         with Compiler() as compiler:
             gridsynth_circuit = compiler.compile(circuit, GridsynthPass(1e-3))
@@ -90,23 +91,29 @@ def judge_circuit(circuit, og=None, distlimit=8):
             circuit_results["gridsynth_unknown"] = gse
     return circuit_results
 
-def build_benchmark_database():
+def build_benchmark_database(paths):
     benchmark_data = dict()
     benchmark_data["inputs"] = dict()
     benchmark_data["inputs_by_qubit_count"] = []
-    for (root, dirs, files) in os.walk(PATHS["inputs"]):
+    for (root, dirs, files) in os.walk(paths["inputs"]):
         for file in files:
-            try:
-                assert os.path.splitext(file)[1] == ".qasm"
-            except:
-                print(f"{file} is not .qasm")
-                continue
             input_path = os.path.join(root, file)
             print(f"Categorizing {input_path}...")
-            output_path = os.path.join(PATHS["outputs"], os.path.relpath(PATHS["inputs"], os.path.splitext(input_path)[0]))
+            try:
+                assert os.path.splitext(file)[1] == ".qasm"
+                circuit = Circuit.from_file(input_path)
+                print(f"{file} is .qasm")
+            except:
+                print(f"{file} is not .qasm")
+                try:
+                    circuit = parse_quipper_file(input_path)
+                    print(f"{file} is quipper")
+                except:
+                    print(f"{file} is not quipper")
+                    continue
+            output_path = os.path.join(paths["outputs"], os.path.relpath(paths["inputs"], os.path.splitext(input_path)[0]))
             data_entry = {"input" : input_path, "output" : output_path}
             data_entry["name"] = os.path.splitext(file)[0]
-            circuit = Circuit.from_file(input_path)
             data_entry["num_qudits"] = circuit.num_qudits
             data_entry["og_data"] = judge_circuit(circuit, circuit)
             
@@ -117,7 +124,7 @@ def build_benchmark_database():
             by_count[circuit.num_qudits - 1].append(input_path)
             benchmark_data["inputs_by_qubit_count"] = by_count
 
-    with open("benchmark_database.json", "w") as f:
+    with open(paths["database"], "w") as f:
         json.dump(benchmark_data, f)
     return benchmark_data
 
@@ -126,13 +133,13 @@ def log(text):
         f.write(datetime.now().isoformat() + " - " + text + "\n")
         print(text)
 
-def load_benchmarks():
+def load_benchmarks(paths=PATHS):
     try:
-        with open(PATHS["database"], "r") as f:
+        with open(paths["database"], "r") as f:
             benchmark_data = json.load(f)
     except:
-        build_benchmark_database()
-        with open(PATHS["database"], "r") as f:
+        build_benchmark_database(paths)
+        with open(paths["database"], "r") as f:
             benchmark_data = json.load(f)
     return benchmark_data
 
@@ -149,6 +156,15 @@ def archive_output(data_dict, filepath):
             data[key] = data_dict[key]
     with open(filepath, "w") as f:
         json.dump(data, f)
+
+def benchmark_in_archive(benchmark, filepath):
+    try:
+        with open(filepath, "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return False
+    return benchmark in data
+
 
 def pprint_ddict(ddict, opname):
     mq = 0

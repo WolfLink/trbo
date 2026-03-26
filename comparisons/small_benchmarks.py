@@ -8,9 +8,13 @@ from trbo.clift import RzAsT
 
 def run_small_benchmarks(data, max_synth_size=4):
     summary_dict = dict()
+    archive_file = "small-5-20-26.json"
     for i in range(max_synth_size):
         benchmarks = data['inputs_by_qubit_count'][i]
         for benchmark in benchmarks:
+            if benchmark_in_archive(benchmark, archive_file):
+                print(f"Skipping {benchmark} due to earlier data")
+                continue
             bench_data = data['inputs'][benchmark]
 
             before_circuit = Circuit.from_file(bench_data["input"])
@@ -51,7 +55,7 @@ def run_small_benchmarks(data, max_synth_size=4):
             pprint_ddict(bench_data, "trbo-fast")
 
             summary_dict[benchmark] = bench_data
-            archive_output(summary_dict, "summary-5-20-26.json")
+            archive_output(summary_dict, archive_file)
 
 
 if __name__ == "__main__":

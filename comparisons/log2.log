@@ -1,0 +1,16 @@
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/qft/qft_6.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/heisenberg/heisenberg_6.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/tfim/tfim_6.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/qpe/qpe_6.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/hhl/hhl_6.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/qft/qft_7.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/heisenberg/heisenberg_7.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/tfim/tfim_7.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/mult/mult_8.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/hubbard/hubbard_8.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/qft/qft_8.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/heisenberg/heisenberg_8.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/tfim/tfim_8.qasm because it was already completed.
+Skipping /home/marc/Documents/quantum/ntro/comparisons/lbnlqasm/qasm/qpe/qpe_8.qasm because it was already completed.
+hhl_8 -> og_data in 0s: 0 Rz, 0 T, 2421 multiqubit
+Started the thing
