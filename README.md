@@ -2,6 +2,8 @@
 
 This software implements a technique developed by Marc Davis to use numerical optimization to reduce the number of T gates in a quantum circuit. This is implemented as a BQSKit pass.
 
+The technique used here is described in the paper "[*T* Count as a Numerically Solvable Optimization Problem](https://arxiv.org/pdf/2603.25101)".
+
 ## Installation
 
 This is available for Python 3.10+ on Linux, macOS, and Windows.
