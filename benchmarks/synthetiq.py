@@ -85,7 +85,7 @@ def select_best_synthetiq_output(output_path):
     return best_circuit
 
 class SynthetiqPass(BasePass):
-    def __init__(self, synthetiq_path, utry=None, mode=None, hardfail=False, use_threads=False, time_limit=None):
+    def __init__(self, synthetiq_path, utry=None, mode=None, hardfail=False, use_threads=True, time_limit=3600):
         self.utry = utry
         self.synthetiq_path = os.path.abspath(synthetiq_path)
         self.mode = mode
@@ -114,12 +114,6 @@ class SynthetiqPass(BasePass):
             elif self.use_threads is not None and self.use_threads is not False:
                 xtraargs.append("-h")
                 xtraargs.append(f"{self.use_threads}")
-            if self.mode is not None and "long" in self.mode:
-                if self.time_limit is None:
-                    xtraargs.append("-t")
-                    xtraargs.append("3600")
-                xtraargs.append("-c")
-                xtraargs.append("1")
 
             if self.time_limit is not None:
                 xtraargs.append("-t")
