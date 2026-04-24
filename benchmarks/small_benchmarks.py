@@ -11,13 +11,13 @@ from bqskit.passes import LEAPSynthesisPass
 from synthetiq import SynthetiqPass
 from benchmarks import *
 
-def run_small_benchmarks(data, max_synth_size=4):
+def run_small_benchmarks(data, max_synth_size=6):
     try:
         with open("small_summary.json", "r") as f:
             summary_dict = json.load(f)
     except:
         summary_dict = dict()
-    for i in range(1, max_synth_size):
+    for i in range(1, max_synth_size + 1):
         benchmarks = data['inputs_by_qubit_count'][i]
         for benchmark in benchmarks:
             if benchmark in summary_dict:
@@ -38,15 +38,15 @@ def run_small_benchmarks(data, max_synth_size=4):
             pprint_ddict(bench_data, "leap")
 
             ## run trbo
-            _, result_data = run_benchmark(small_circuit, MultistartPass(trbo.workflows.default()))
+            _, result_data = run_benchmark(small_circuit, MultistartPass(trbo.workflows.slow()))
             bench_data["trbo"] = result_data
             pprint_ddict(bench_data, "trbo")
 
             # run Synthetiq
             # Clone and build Synthetiq for SynthetiqPass to work: https://github.com/eth-sri/synthetiq
-            #_, result_data = run_benchmark(before_circuit, SynthetiqPass(PATHS["synthetiq"]))
-            #bench_data["synthetiq"] = result_data
-            #pprint_ddict(bench_data, "synthetiq")
+            _, result_data = run_benchmark(before_circuit, SynthetiqPass(PATHS["synthetiq"]))
+            bench_data["synthetiq"] = result_data
+            pprint_ddict(bench_data, "synthetiq")
 
             summary_dict[benchmark] = bench_data
             archive_output(summary_dict, "small_summary.json")
