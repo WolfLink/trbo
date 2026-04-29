@@ -1,5 +1,6 @@
 from typing import Optional
 from bqskit.ir.opt.cost.generator import CostFunctionGenerator
+from bqskit.ir.gates.circuitgate import CircuitGate
 
 class RzDiscretization():
     def nearest_gate(self, rz_angle: float) -> CircuitGate:

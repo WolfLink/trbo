@@ -2,6 +2,7 @@ from typing import Optional
 import numpy as np
 from bqskit.ir.circuit import Circuit
 from bqskit.ir.gates import CircuitGate
+from bqskit.ir.opt.cost.generator import CostFunctionGenerator
 
 from bqskit.ir.gates import CNOTGate
 from bqskit.ir.gates import CZGate
