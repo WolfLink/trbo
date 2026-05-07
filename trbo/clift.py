@@ -16,6 +16,7 @@ from bqskit.ir.gates import TGate
 from bqskit.ir.gates import XGate
 from bqskit.ir.gates import YGate
 from bqskit.ir.gates import ZGate
+from bqskit.ir.opt.cost.generator import CostFunctionGenerator
 
 from bqskit.ir.gates.qubitgate import QubitGate
 from bqskit.qis.unitary.differentiable import DifferentiableUnitary
